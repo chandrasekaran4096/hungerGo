@@ -167,3 +167,49 @@ AJAX call & response processing
 If you want, next I can also do the same separation for login page, with dynamic AJAX login + redirect based on role.
 
 Do you want me to do that next?
+
+
+
+$(document).ready(function() {
+
+    $('#loginForm').on('submit', function(e) {
+        e.preventDefault(); // Prevent default form submit
+
+        const email = $('input[name="email"]').val().trim();
+        const password = $('input[name="password"]').val().trim();
+
+        // ---------------- Input Validation -----------------
+        if(email === "" || password === "") {
+            alert("Please enter both email and password!");
+            return;
+        }
+
+        // Optional: basic email format check
+        const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if(!emailPattern.test(email)){
+            alert("Enter a valid email!");
+            return;
+        }
+
+        // ---------------- AJAX Call -----------------
+        $.ajax({
+            url: 'user',            // Servlet URL
+            type: 'POST',
+            data: $(this).serialize() + '&action=login',
+            dataType: 'json',
+            success: function(response){
+                if(response.status === 'success'){
+                    alert(response.message);  // Show success message
+                    // Redirect based on role
+                    window.location.href = response.redirect;
+                } else {
+                    alert(response.message); // Show error message
+                }
+            },
+            error: function(xhr, status, error){
+                alert("Server error: " + error);
+            }
+        });
+    });
+
+});
