@@ -1,0 +1,223 @@
+Perfect! Let’s refactor UserServlet and UserService to fully support:
+
+Gson JSON responses
+
+ResponseMessage<T> with data object
+
+Registration & login with proper validations
+
+Redirect based on role
+
+Ready for frontend AJAX consumption
+
+
+
+---
+
+1️⃣ ResponseMessage.java (Generic)
+
+package com.fooddelivery.model;
+
+public class ResponseMessage<T> {
+    private String status;
+    private String message;
+    private String redirect;
+    private T data;
+
+    public ResponseMessage() {}
+
+    public ResponseMessage(String status, String message) {
+        this.status = status;
+        this.message = message;
+    }
+
+    public ResponseMessage(String status, String message, String redirect) {
+        this.status = status;
+        this.message = message;
+        this.redirect = redirect;
+    }
+
+    public ResponseMessage(String status, String message, T data) {
+        this.status = status;
+        this.message = message;
+        this.data = data;
+    }
+
+    public ResponseMessage(String status, String message, String redirect, T data) {
+        this.status = status;
+        this.message = message;
+        this.redirect = redirect;
+        this.data = data;
+    }
+
+    // Getters and setters
+    public String getStatus() { return status; }
+    public void setStatus(String status) { this.status = status; }
+
+    public String getMessage() { return message; }
+    public void setMessage(String message) { this.message = message; }
+
+    public String getRedirect() { return redirect; }
+    public void setRedirect(String redirect) { this.redirect = redirect; }
+
+    public T getData() { return data; }
+    public void setData(T data) { this.data = data; }
+}
+
+
+---
+
+2️⃣ UserService.java
+
+package com.fooddelivery.service;
+
+import com.fooddelivery.dao.UserDAO;
+import com.fooddelivery.model.User;
+import com.fooddelivery.model.ResponseMessage;
+
+public class UserService {
+
+    private UserDAO userDAO;
+
+    public UserService() {
+        userDAO = new UserDAO();
+    }
+
+    // -------- Registration --------
+    public ResponseMessage<User> registerUser(String name, String email, String phone, String address, String password, String role) {
+        if(name == null || name.isEmpty() || email == null || email.isEmpty() ||
+           password == null || password.isEmpty() || role == null || role.isEmpty()) {
+            return new ResponseMessage<>("error", "Please fill all required fields");
+        }
+
+        if(userDAO.checkUserExists(email)) {
+            return new ResponseMessage<>("error", "User already exists");
+        }
+
+        String encryptedPassword = new StringBuilder(password).reverse().toString();
+        User user = new User(name, email, phone, address, encryptedPassword, role);
+
+        boolean success = userDAO.registerUser(user);
+        if(success) {
+            return new ResponseMessage<>("success", "Registration successful!", "login.html", user);
+        } else {
+            return new ResponseMessage<>("error", "Registration failed");
+        }
+    }
+
+    // -------- Login --------
+    public User loginUser(String email, String password) {
+        if(email == null || email.isEmpty() || password == null || password.isEmpty()) return null;
+
+        String encryptedPassword = new StringBuilder(password).reverse().toString();
+        return userDAO.login(email, encryptedPassword); // returns User object if success, else null
+    }
+}
+
+
+---
+
+3️⃣ UserServlet.java
+
+package com.fooddelivery.controller;
+
+import javax.servlet.*;
+import javax.servlet.http.*;
+import javax.servlet.annotation.*;
+import java.io.*;
+import com.google.gson.Gson;
+import com.fooddelivery.service.UserService;
+import com.fooddelivery.model.User;
+import com.fooddelivery.model.ResponseMessage;
+
+@WebServlet("/user")
+public class UserServlet extends HttpServlet {
+
+    private UserService userService;
+    private Gson gson = new Gson();
+
+    @Override
+    public void init() {
+        userService = new UserService();
+    }
+
+    @Override
+    protected void doPost(HttpServletRequest request, HttpServletResponse response) throws IOException {
+        response.setContentType("application/json");
+        response.setCharacterEncoding("UTF-8");
+        PrintWriter out = response.getWriter();
+
+        String action = request.getParameter("action");
+        ResponseMessage<?> resp;
+
+        try {
+            if("register".equalsIgnoreCase(action)) {
+                String name = request.getParameter("name");
+                String email = request.getParameter("email");
+                String phone = request.getParameter("phonenumber");
+                String address = request.getParameter("address");
+                String password = request.getParameter("password");
+                String role = request.getParameter("role");
+
+                resp = userService.registerUser(name, email, phone, address, password, role);
+
+            } else if("login".equalsIgnoreCase(action)) {
+                String email = request.getParameter("email");
+                String password = request.getParameter("password");
+
+                User user = userService.loginUser(email, password);
+                if(user != null) {
+                    HttpSession session = request.getSession();
+                    session.setAttribute("user", user);
+
+                    String redirectPage = "restaurant.html";
+                    if("admin".equalsIgnoreCase(user.getRole())) redirectPage = "admin.html";
+                    else if("restaurant".equalsIgnoreCase(user.getRole())) redirectPage = "restaurantowner.html";
+
+                    resp = new ResponseMessage<>("success", "Login successful", redirectPage, user);
+                } else {
+                    resp = new ResponseMessage<>("error", "Invalid credentials");
+                }
+            } else {
+                resp = new ResponseMessage<>("error", "Invalid action");
+            }
+        } catch(Exception e) {
+            e.printStackTrace();
+            resp = new ResponseMessage<>("error", "Server error: " + e.getMessage());
+        }
+
+        out.print(gson.toJson(resp));
+        out.flush();
+    }
+}
+
+
+---
+
+✅ Features:
+
+1. Registration & Login fully handled.
+
+
+2. Generic ResponseMessage<T> allows sending object data to frontend.
+
+
+3. Redirect field included for role-based navigation.
+
+
+4. Exception-safe with server errors returned as JSON.
+
+
+5. Frontend AJAX can now do:
+
+
+
+console.log(response.data); // access user object
+window.location.href = response.redirect; // redirect based on role
+
+
+---
+
+Next, we can update your registration.html and login.html AJAX to fully consume the data object for user info if you want.
+
+Do you want me to do that next?
