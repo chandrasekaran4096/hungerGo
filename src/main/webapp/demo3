@@ -1,0 +1,126 @@
+package com.fooddelivery.controller;
+
+import javax.servlet.*;
+import javax.servlet.http.*;
+import javax.servlet.annotation.*;
+import java.io.IOException;
+import java.io.PrintWriter;
+import com.fooddelivery.dao.UserDAO;
+import com.fooddelivery.model.User;
+import org.json.JSONObject;
+
+@WebServlet("/user")
+public class UserServlet extends HttpServlet {
+
+    @Override
+    protected void doPost(HttpServletRequest request, HttpServletResponse response) throws IOException {
+        response.setContentType("application/json");
+        response.setCharacterEncoding("UTF-8");
+        PrintWriter out = response.getWriter();
+
+        JSONObject json = new JSONObject();
+        String action = request.getParameter("action");
+
+        if (action == null || action.trim().isEmpty()) {
+            json.put("status", "error");
+            json.put("message", "Invalid action");
+            out.print(json.toString());
+            return;
+        }
+
+        try {
+            UserDAO dao = new UserDAO();
+
+            // ========== REGISTER ==========
+            if ("register".equalsIgnoreCase(action)) {
+
+                String name = request.getParameter("name");
+                String email = request.getParameter("email");
+                String phone = request.getParameter("phonenumber");
+                String address = request.getParameter("address");
+                String password = request.getParameter("password");
+                String role = request.getParameter("role");
+
+                // Basic validation
+                if (isEmpty(name) || isEmpty(email) || isEmpty(password) || isEmpty(role)) {
+                    json.put("status", "error");
+                    json.put("message", "All required fields must be filled");
+                    out.print(json.toString());
+                    return;
+                }
+
+                // Encrypt password (reverse string)
+                String encryptedPassword = new StringBuilder(password).reverse().toString();
+                User user = new User(name, email, phone, address, encryptedPassword, role);
+
+                if (dao.checkUserExists(email)) {
+                    json.put("status", "error");
+                    json.put("message", "User already exists");
+                } else {
+                    boolean registered = dao.registerUser(user);
+                    if (registered) {
+                        json.put("status", "success");
+                        json.put("message", "Registration successful");
+                    } else {
+                        json.put("status", "error");
+                        json.put("message", "Registration failed. Try again.");
+                    }
+                }
+            }
+
+            // ========== LOGIN ==========
+            else if ("login".equalsIgnoreCase(action)) {
+                String email = request.getParameter("email");
+                String password = request.getParameter("password");
+
+                if (isEmpty(email) || isEmpty(password)) {
+                    json.put("status", "error");
+                    json.put("message", "Email and Password are required");
+                    out.print(json.toString());
+                    return;
+                }
+
+                String encryptedPassword = new StringBuilder(password).reverse().toString();
+                User user = dao.login(email, encryptedPassword);
+
+                if (user != null) {
+                    // Create session
+                    HttpSession session = request.getSession(true);
+                    session.setAttribute("user", user);
+
+                    // Role based redirect
+                    String redirectPage = "restaurant.html";
+                    if ("admin".equalsIgnoreCase(user.getRole())) {
+                        redirectPage = "admin.html";
+                    } else if ("restaurant_owner".equalsIgnoreCase(user.getRole())) {
+                        redirectPage = "owner.html";
+                    }
+
+                    json.put("status", "success");
+                    json.put("message", "Login successful");
+                    json.put("redirect", redirectPage);
+                } else {
+                    json.put("status", "error");
+                    json.put("message", "Invalid email or password");
+                }
+            }
+
+            // ========== INVALID ACTION ==========
+            else {
+                json.put("status", "error");
+                json.put("message", "Unsupported action");
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            json.put("status", "error");
+            json.put("message", "Internal server error");
+        }
+
+        out.print(json.toString());
+    }
+
+    private boolean isEmpty(String val) {
+        return val == null || val.trim().isEmpty();
+    }
+}
