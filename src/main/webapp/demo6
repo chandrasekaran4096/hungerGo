@@ -1,0 +1,169 @@
+Got it! You want the registration page and the jQuery script in separate files for better organization. Here’s how you can structure it:
+
+
+---
+
+📁 Folder Structure
+
+webapp/
+ ├─ register.html
+ ├─ js/
+ │    └─ register.js
+ └─ css/
+      └─ (optional: custom CSS if needed)
+
+
+---
+
+1️⃣ register.html
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Registration - Food Delivery</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="js/register.js"></script>
+</head>
+<body class="bg-gray-100 flex items-center justify-center h-screen">
+
+    <div class="bg-white p-8 rounded-lg shadow-md w-full max-w-md">
+        <h2 class="text-2xl font-bold mb-6 text-center">Register</h2>
+
+        <form id="registerForm" class="space-y-4">
+            <!-- Dynamic fields will be injected here by register.js -->
+        </form>
+
+        <button id="submitBtn" class="w-full bg-blue-500 text-white py-2 px-4 rounded hover:bg-blue-600 mt-4">
+            Register
+        </button>
+    </div>
+
+</body>
+</html>
+
+
+---
+
+2️⃣ js/register.js
+
+// ---------------- Dynamic Form Fields -----------------
+const registrationFields = [
+    { name: "name", type: "text", placeholder: "Full Name", required: true },
+    { name: "email", type: "email", placeholder: "Email", required: true },
+    { name: "phonenumber", type: "text", placeholder: "Phone Number", required: true },
+    { name: "address", type: "text", placeholder: "Address", required: false },
+    { name: "password", type: "password", placeholder: "Password", required: true },
+    { name: "role", type: "select", placeholder: "Select Role", required: true,
+      options: ["customer", "restaurant", "admin"] }
+];
+
+$(document).ready(function() {
+    const form = $('#registerForm');
+
+    // Generate form dynamically
+    registrationFields.forEach(field => {
+        let fieldHtml = '';
+        if(field.type === 'select') {
+            fieldHtml = `<div>
+                            <label class="block mb-1 font-semibold">${field.placeholder}</label>
+                            <select name="${field.name}" class="w-full border border-gray-300 p-2 rounded" ${field.required ? 'required' : ''}>
+                                <option value="">--Select--</option>
+                                ${field.options.map(opt => `<option value="${opt}">${opt}</option>`).join('')}
+                            </select>
+                         </div>`;
+        } else {
+            fieldHtml = `<div>
+                            <label class="block mb-1 font-semibold">${field.placeholder}</label>
+                            <input type="${field.type}" name="${field.name}" placeholder="${field.placeholder}" 
+                                class="w-full border border-gray-300 p-2 rounded" ${field.required ? 'required' : ''}/>
+                         </div>`;
+        }
+        form.append(fieldHtml);
+    });
+
+    // ---------------- Form Validation -----------------
+    function validateForm() {
+        const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        const phonePattern = /^[0-9]{10}$/;
+
+        const email = $('input[name="email"]').val();
+        const phone = $('input[name="phonenumber"]').val();
+        const password = $('input[name="password"]').val();
+
+        if(!emailPattern.test(email)) {
+            alert("Enter a valid email!");
+            return false;
+        }
+
+        if(!phonePattern.test(phone)) {
+            alert("Enter a valid 10-digit phone number!");
+            return false;
+        }
+
+        if(password.length < 6) {
+            alert("Password must be at least 6 characters!");
+            return false;
+        }
+
+        return true;
+    }
+
+    // ---------------- AJAX Submission -----------------
+    $('#submitBtn').click(function(e) {
+        e.preventDefault();
+
+        if(!validateForm()) return;
+
+        $.ajax({
+            url: 'user',
+            type: 'POST',
+            data: $('#registerForm').serialize() + '&action=register',
+            dataType: 'json',
+            success: function(response){
+                if(response.status === 'success'){
+                    alert(response.message);
+                    window.location.href = response.redirect; // redirect to login page
+                } else {
+                    alert(response.message); // stay on same page
+                }
+            },
+            error: function(xhr, status, error){
+                alert("Server error: " + error);
+            }
+        });
+    });
+});
+
+
+---
+
+✅ Benefits of this structure:
+
+1. HTML only handles layout & Tailwind styling.
+
+
+2. JavaScript in a separate file handles:
+
+Dynamic field creation
+
+Validation
+
+AJAX call & response processing
+
+
+
+3. Easier to maintain and update.
+
+
+4. Fully compatible with your existing servlet + service + DAO backend.
+
+
+
+
+---
+
+If you want, next I can also do the same separation for login page, with dynamic AJAX login + redirect based on role.
+
+Do you want me to do that next?
