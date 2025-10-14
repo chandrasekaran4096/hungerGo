@@ -1,0 +1,109 @@
+/* Reset */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Poppins', sans-serif;
+  background-color: #0f0f0f;
+  color: #fff;
+  overflow-x: hidden;
+}
+
+/* Heading */
+h2 {
+  text-align: center;
+  font-size: 2.5rem;
+  margin: 40px 0 20px;
+  color: #ff6347;
+}
+
+/* Menu Section */
+.menu-section {
+  padding: 40px;
+}
+
+.menu-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 30px;
+}
+
+/* Individual Menu Item */
+.menu-item {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 20px;
+  padding: 20px;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255,255,255,0.1);
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.menu-item:hover {
+  transform: scale(1.03);
+  box-shadow: 0 8px 24px rgba(255, 99, 71, 0.3);
+}
+
+.menu-item img {
+  width: 100%;
+  height: 160px;
+  border-radius: 15px;
+  object-fit: cover;
+  margin-bottom: 15px;
+}
+
+.menu-item h3 {
+  font-size: 1.4rem;
+  color: #ff6347;
+  margin-bottom: 8px;
+}
+
+.menu-item p {
+  font-size: 1rem;
+  color: #ddd;
+  margin-bottom: 6px;
+  text-decoration: none;
+  border-bottom: none;
+}
+
+/* Remove unwanted underline on <p> */
+.menu-item p.price,
+.menu-item p.date,
+.menu-item p.desc {
+  text-decoration: none;
+  border-bottom: none;
+}
+
+/* Add to Cart Button */
+.add-to-cart {
+  margin-top: 10px;
+  background-color: #ff6347;
+  color: white;
+  padding: 10px 16px;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+.add-to-cart:hover {
+  background-color: #e5533f;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .menu-section {
+    padding: 20px;
+  }
+
+  .menu-item h3 {
+    font-size: 1.2rem;
+  }
+
+  .menu-item p {
+    font-size: 0.95rem;
+  }
+}
