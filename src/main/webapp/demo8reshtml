@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BiteBuddy 🍴</title>
+
+  <!-- Tailwind -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;500;700&display=swap" rel="stylesheet">
+
+  <!-- Custom CSS -->
+  <link rel="stylesheet" href="assets/css/style.css" />
+
+  <!-- jQuery -->
+  <script src="https://code.jquery.com/jquery-3.6.4.min.js"></script>
+</head>
+
+<body class="overflow-x-hidden bg-neutral-950 text-white font-[Poppins]">
+  <!-- Navbar -->
+  <nav class="flex justify-between items-center px-8 py-4 bg-black/70 backdrop-blur-md fixed w-full top-0 z-50 shadow-lg">
+    <h1 class="text-3xl font-bold text-orange-500">BiteBuddy</h1>
+    <ul class="flex space-x-6 text-lg">
+      <li><a href="#home" class="hover:text-orange-500 transition">Home</a></li>
+      <li><a href="#about" class="hover:text-orange-500 transition">About</a></li>
+      <li><a href="cart.html" class="hover:text-orange-500 transition">Cart</a></li>
+      <li><a href="login.html" class="hover:text-orange-500 transition">Login</a></li>
+      <li><a href="orders.html" class="hover:text-orange-500 transition">Orders</a></li>
+    </ul>
+  </nav>
+
+  <!-- Hero Section -->
+  <section id="home" class="relative h-screen flex items-center justify-center text-center text-white">
+    <video autoplay muted loop class="absolute w-full h-full object-cover brightness-50 -z-10">
+      <source src="https://videos.pexels.com/video-files/3298718/3298718-uhd_2732_1440_25fps.mp4" type="video/mp4">
+    </video>
+    <div class="fade-in max-w-2xl px-6">
+      <h2 class="text-5xl font-bold mb-4 drop-shadow-lg">Welcome to BiteBuddy 🍴</h2>
+      <p class="text-lg md:text-xl text-gray-200">
+        "Food that understands your stack overflow — Welcome to BiteBuddy" 🍲💾
+      </p>
+    </div>
+  </section>
+
+  <!-- Restaurant Section -->
+  <section id="restaurants" class="py-20 px-10 grid gap-10 sm:grid-cols-2 lg:grid-cols-3"></section>
+
+  <!-- About Section -->
+  <section id="about" class="bg-neutral-900 text-center py-20 px-6">
+    <h2 class="text-4xl font-bold text-orange-500 mb-6">About BiteBuddy</h2>
+    <p class="text-lg max-w-3xl mx-auto leading-relaxed text-gray-300">
+      BiteBuddy connects hungry hearts with their favorite restaurants. With fast delivery, 
+      a variety of cuisines, and easy ordering, we're here to serve you joy on a plate.
+    </p>
+  </section>
+
+  <!-- Footer -->
+  <footer class="bg-black text-center py-4 text-gray-400 text-sm">
+    &copy; 2025 BiteBuddy. All rights reserved.
+  </footer>
+
+  <!-- Custom JS -->
+  <script src="assets/js/main.js"></script>
+</body>
+</html>
