@@ -1,0 +1,369 @@
+Perfect ✅ — that’s a good and clean architecture!
+
+👉 Here’s how we’ll structure it based on your requirement:
+
+
+---
+
+📁 Project Folder Structure
+
+src/
+ ├─ com.fooddelivery.controller
+ │    └─ UserServlet.java
+ ├─ com.fooddelivery.service
+ │    └─ UserService.java
+ ├─ com.fooddelivery.dao
+ │    └─ UserDAO.java
+ ├─ com.fooddelivery.model
+ │    └─ User.java
+ └─ com.fooddelivery.util
+      └─ DBConnection.java
+
+Controller (Servlet) → only handle request/response and routing
+
+Service layer → validation, encryption, business logic
+
+DAO layer → database access (insert, check, login)
+
+Model → plain Java class for User
+
+Util → DB connection
+
+
+
+---
+
+🧑‍💻 UserServlet.java — Controller Layer
+
+package com.fooddelivery.controller;
+
+import javax.servlet.*;
+import javax.servlet.http.*;
+import javax.servlet.annotation.*;
+import java.io.*;
+import java.util.HashMap;
+import java.util.Map;
+
+import com.fooddelivery.model.User;
+import com.fooddelivery.service.UserService;
+
+@WebServlet("/user")
+public class UserServlet extends HttpServlet {
+
+    private static final long serialVersionUID = 1L;
+    private UserService userService;
+
+    @Override
+    public void init() {
+        userService = new UserService();
+    }
+
+    @Override
+    protected void doPost(HttpServletRequest request, HttpServletResponse response) throws IOException {
+        response.setContentType("application/json");
+        response.setCharacterEncoding("UTF-8");
+        PrintWriter out = response.getWriter();
+
+        String action = request.getParameter("action");
+        Map<String, String> json = new HashMap<>();
+
+        try {
+            if ("register".equalsIgnoreCase(action)) {
+                String name = request.getParameter("name");
+                String email = request.getParameter("email");
+                String phone = request.getParameter("phonenumber");
+                String address = request.getParameter("address");
+                String password = request.getParameter("password");
+                String role = request.getParameter("role");
+
+                json = userService.registerUser(name, email, phone, address, password, role);
+
+            } else if ("login".equalsIgnoreCase(action)) {
+                String email = request.getParameter("email");
+                String password = request.getParameter("password");
+
+                User user = userService.loginUser(email, password);
+
+                if (user != null) {
+                    HttpSession session = request.getSession();
+                    session.setAttribute("user", user);
+
+                    json.put("status", "success");
+                    json.put("message", "Login successful");
+
+                    String redirectPage = "restaurant.html";
+                    if ("admin".equalsIgnoreCase(user.getRole())) redirectPage = "admin.html";
+                    else if ("restaurant".equalsIgnoreCase(user.getRole())) redirectPage = "restaurantowner.html";
+
+                    json.put("redirect", redirectPage);
+                } else {
+                    json.put("status", "error");
+                    json.put("message", "Invalid credentials");
+                }
+            } else {
+                json.put("status", "error");
+                json.put("message", "Invalid action");
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            json.put("status", "error");
+            json.put("message", "Server error: " + e.getMessage());
+        }
+
+        out.print(mapToJson(json));
+        out.flush();
+    }
+
+    @Override
+    protected void doGet(HttpServletRequest request, HttpServletResponse response) throws IOException {
+        response.setContentType("application/json");
+        PrintWriter out = response.getWriter();
+        Map<String, String> json = new HashMap<>();
+
+        HttpSession session = request.getSession(false);
+        if (session != null && session.getAttribute("user") != null) {
+            User user = (User) session.getAttribute("user");
+            json.put("loggedIn", "true");
+            json.put("role", user.getRole());
+        } else {
+            json.put("loggedIn", "false");
+        }
+
+        out.print(mapToJson(json));
+        out.flush();
+    }
+
+    private String mapToJson(Map<String, String> map) {
+        StringBuilder sb = new StringBuilder("{");
+        int i = 0;
+        for (Map.Entry<String, String> entry : map.entrySet()) {
+            sb.append("\"").append(entry.getKey()).append("\":\"").append(entry.getValue()).append("\"");
+            if (i < map.size() - 1) sb.append(",");
+            i++;
+        }
+        sb.append("}");
+        return sb.toString();
+    }
+}
+
+
+---
+
+🧠 UserService.java — Service Layer
+
+package com.fooddelivery.service;
+
+import java.util.HashMap;
+import java.util.Map;
+import com.fooddelivery.dao.UserDAO;
+import com.fooddelivery.model.User;
+
+public class UserService {
+
+    private UserDAO userDAO = new UserDAO();
+
+    public Map<String, String> registerUser(String name, String email, String phone, String address, String password, String role) {
+        Map<String, String> json = new HashMap<>();
+
+        if (name == null || name.isEmpty() || email == null || email.isEmpty() ||
+            password == null || password.isEmpty() || role == null || role.isEmpty()) {
+            json.put("status", "error");
+            json.put("message", "Please fill all required fields");
+            return json;
+        }
+
+        if (userDAO.checkUserExists(email)) {
+            json.put("status", "error");
+            json.put("message", "User already exists");
+            return json;
+        }
+
+        String encryptedPassword = new StringBuilder(password).reverse().toString();
+        User user = new User(name, email, phone, address, encryptedPassword, role);
+
+        boolean success = userDAO.registerUser(user);
+        if (success) {
+            json.put("status", "success");
+            json.put("message", "Registration successful");
+        } else {
+            json.put("status", "error");
+            json.put("message", "Registration failed");
+        }
+        return json;
+    }
+
+    public User loginUser(String email, String password) {
+        if (email == null || email.isEmpty() || password == null || password.isEmpty()) {
+            return null;
+        }
+
+        String encryptedPassword = new StringBuilder(password).reverse().toString();
+        return userDAO.login(email, encryptedPassword);
+    }
+}
+
+
+---
+
+🧾 User.java — Model Layer
+
+package com.fooddelivery.model;
+
+public class User {
+    private int userId;
+    private String name;
+    private String email;
+    private String phone;
+    private String address;
+    private String password;
+    private String role;
+
+    public User() {}
+
+    public User(String name, String email, String phone, String address, String password, String role) {
+        this.name = name;
+        this.email = email;
+        this.phone = phone;
+        this.address = address;
+        this.password = password;
+        this.role = role;
+    }
+
+    // Getters and Setters
+    public int getUserId() { return userId; }
+    public void setUserId(int userId) { this.userId = userId; }
+
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
+
+    public String getEmail() { return email; }
+    public void setEmail(String email) { this.email = email; }
+
+    public String getPhone() { return phone; }
+    public void setPhone(String phone) { this.phone = phone; }
+
+    public String getAddress() { return address; }
+    public void setAddress(String address) { this.address = address; }
+
+    public String getPassword() { return password; }
+    public void setPassword(String password) { this.password = password; }
+
+    public String getRole() { return role; }
+    public void setRole(String role) { this.role = role; }
+}
+
+
+---
+
+🧰 DBConnection.java — Utility Layer
+
+package com.fooddelivery.util;
+
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.SQLException;
+
+public class DBConnection {
+    private static final String URL = "jdbc:sqlserver://localhost:1433;databaseName=SQLTraining;encrypt=false";
+    private static final String USER = "sa";
+    private static final String PASSWORD = "your_password";
+
+    public static Connection getConnection() throws SQLException {
+        try {
+            Class.forName("com.microsoft.sqlserver.jdbc.SQLServerDriver");
+            return DriverManager.getConnection(URL, USER, PASSWORD);
+        } catch (ClassNotFoundException e) {
+            e.printStackTrace();
+            throw new SQLException("Database Driver not found");
+        }
+    }
+}
+
+
+---
+
+🧑‍💻 UserDAO.java — DAO Layer
+
+package com.fooddelivery.dao;
+
+import java.sql.*;
+import com.fooddelivery.model.User;
+import com.fooddelivery.util.DBConnection;
+
+public class UserDAO {
+
+    public boolean checkUserExists(String email) {
+        String sql = "SELECT COUNT(*) FROM food.M_S_USERS WHERE email = ? AND is_deleted = 0";
+        try (Connection con = DBConnection.getConnection();
+             PreparedStatement ps = con.prepareStatement(sql)) {
+            ps.setString(1, email);
+            ResultSet rs = ps.executeQuery();
+            if (rs.next() && rs.getInt(1) > 0) {
+                return true;
+            }
+        } catch (SQLException e) { e.printStackTrace(); }
+        return false;
+    }
+
+    public boolean registerUser(User user) {
+        String sql = "INSERT INTO food.M_S_USERS (name, email, phonenumber, address, password, role) VALUES (?,?,?,?,?,?)";
+        try (Connection con = DBConnection.getConnection();
+             PreparedStatement ps = con.prepareStatement(sql)) {
+            ps.setString(1, user.getName());
+            ps.setString(2, user.getEmail());
+            ps.setString(3, user.getPhone());
+            ps.setString(4, user.getAddress());
+            ps.setString(5, user.getPassword());
+            ps.setString(6, user.getRole());
+            return ps.executeUpdate() > 0;
+        } catch (SQLException e) { e.printStackTrace(); }
+        return false;
+    }
+
+    public User login(String email, String password) {
+        String sql = "SELECT userid, name, email, phonenumber, address, role FROM food.M_S_USERS WHERE email = ? AND password = ? AND is_deleted = 0";
+        try (Connection con = DBConnection.getConnection();
+             PreparedStatement ps = con.prepareStatement(sql)) {
+            ps.setString(1, email);
+            ps.setString(2, password);
+            ResultSet rs = ps.executeQuery();
+            if (rs.next()) {
+                User user = new User();
+                user.setUserId(rs.getInt("userid"));
+                user.setName(rs.getString("name"));
+                user.setEmail(rs.getString("email"));
+                user.setPhone(rs.getString("phonenumber"));
+                user.setAddress(rs.getString("address"));
+                user.setRole(rs.getString("role"));
+                return user;
+            }
+        } catch (SQLException e) { e.printStackTrace(); }
+        return null;
+    }
+}
+
+
+---
+
+✅ What this version covers:
+
+Single servlet → clean & simple
+
+Business logic in service layer
+
+DB code only in DAO
+
+Plain JSON (no Jackson)
+
+Redirection based on role after login
+
+Session management ready for next steps (like protecting pages)
+
+Compatible with your existing M_S_USERS table.
+
+
+
+---
+
+Would you like me to also give the AJAX front-end (HTML + Tailwind + jQuery) code for this login & registration form? (It’ll make your testing easier.)
