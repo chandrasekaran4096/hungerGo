@@ -1,0 +1,237 @@
+Perfect 👍
+You want to:
+
+1. Keep your **HTML clean** (no inline JS or CSS).
+2. **Use jQuery** to fetch restaurant data from your **backend dynamically (AJAX)**.
+3. Apply **super-stylish Tailwind UI** — smooth, modern, animated interface.
+4. Maintain the same restaurant card layout and hero section from your JSP page.
+
+Let’s separate everything into 3 files:
+
+---
+
+## 🧩 Folder Structure
+
+```
+/project-root
+│
+├── index.html
+├── assets/
+│   ├── css/
+│   │   └── style.css
+│   └── js/
+│       └── main.js
+```
+
+---
+
+## 🧠 1️⃣ index.html
+
+This is your **main page**, minimal and clean — no business logic or inline styles.
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BiteBuddy 🍴</title>
+
+  <!-- Tailwind -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;500;700&display=swap" rel="stylesheet">
+
+  <!-- Custom CSS -->
+  <link rel="stylesheet" href="assets/css/style.css" />
+
+  <!-- jQuery -->
+  <script src="https://code.jquery.com/jquery-3.6.4.min.js"></script>
+</head>
+
+<body class="overflow-x-hidden bg-neutral-950 text-white font-[Poppins]">
+  <!-- Navbar -->
+  <nav class="flex justify-between items-center px-8 py-4 bg-black/70 backdrop-blur-md fixed w-full top-0 z-50 shadow-lg">
+    <h1 class="text-3xl font-bold text-orange-500">BiteBuddy</h1>
+    <ul class="flex space-x-6 text-lg">
+      <li><a href="#home" class="hover:text-orange-500 transition">Home</a></li>
+      <li><a href="#about" class="hover:text-orange-500 transition">About</a></li>
+      <li><a href="cart.html" class="hover:text-orange-500 transition">Cart</a></li>
+      <li><a href="login.html" class="hover:text-orange-500 transition">Login</a></li>
+      <li><a href="orders.html" class="hover:text-orange-500 transition">Orders</a></li>
+    </ul>
+  </nav>
+
+  <!-- Hero Section -->
+  <section id="home" class="relative h-screen flex items-center justify-center text-center text-white">
+    <video autoplay muted loop class="absolute w-full h-full object-cover brightness-50 -z-10">
+      <source src="https://videos.pexels.com/video-files/3298718/3298718-uhd_2732_1440_25fps.mp4" type="video/mp4">
+    </video>
+    <div class="fade-in max-w-2xl px-6">
+      <h2 class="text-5xl font-bold mb-4 drop-shadow-lg">Welcome to BiteBuddy 🍴</h2>
+      <p class="text-lg md:text-xl text-gray-200">
+        "Food that understands your stack overflow — Welcome to BiteBuddy" 🍲💾
+      </p>
+    </div>
+  </section>
+
+  <!-- Restaurant Section -->
+  <section id="restaurants" class="py-20 px-10 grid gap-10 sm:grid-cols-2 lg:grid-cols-3"></section>
+
+  <!-- About Section -->
+  <section id="about" class="bg-neutral-900 text-center py-20 px-6">
+    <h2 class="text-4xl font-bold text-orange-500 mb-6">About BiteBuddy</h2>
+    <p class="text-lg max-w-3xl mx-auto leading-relaxed text-gray-300">
+      BiteBuddy connects hungry hearts with their favorite restaurants. With fast delivery, 
+      a variety of cuisines, and easy ordering, we're here to serve you joy on a plate.
+    </p>
+  </section>
+
+  <!-- Footer -->
+  <footer class="bg-black text-center py-4 text-gray-400 text-sm">
+    &copy; 2025 BiteBuddy. All rights reserved.
+  </footer>
+
+  <!-- Custom JS -->
+  <script src="assets/js/main.js"></script>
+</body>
+</html>
+```
+
+---
+
+## 🎨 2️⃣ assets/css/style.css
+
+Here we handle extra animations and effects that Tailwind doesn’t handle directly.
+
+```css
+.fade-in {
+  opacity: 0;
+  transform: translateY(30px);
+  transition: opacity 0.8s ease, transform 0.8s ease;
+}
+
+.fade-in.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.card-hover {
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.card-hover:hover {
+  transform: scale(1.05);
+  box-shadow: 0 10px 25px rgba(255, 99, 71, 0.3);
+}
+```
+
+---
+
+## ⚙️ 3️⃣ assets/js/main.js
+
+This file will:
+✅ Fetch restaurant data from backend (via AJAX)
+✅ Dynamically render the restaurant cards
+✅ Animate them when they appear
+
+```javascript
+$(document).ready(function () {
+  // 1️⃣ Scroll animation
+  $(window).on("scroll", function () {
+    $(".fade-in").each(function () {
+      const top = $(this).offset().top;
+      const scroll = $(window).scrollTop();
+      const windowHeight = $(window).height();
+      if (scroll + windowHeight > top + 50) {
+        $(this).addClass("visible");
+      }
+    });
+  });
+
+  // 2️⃣ Fetch restaurant data from backend
+  $.ajax({
+    url: "http://localhost:8080/BiteBuddy/api/restaurants", // ✅ your backend endpoint
+    method: "GET",
+    dataType: "json",
+    success: function (restaurants) {
+      $("#restaurants").empty();
+
+      restaurants.forEach((r) => {
+        $("#restaurants").append(`
+          <a href="menu.html?restaurant_id=${r.restaurant_id}">
+            <div class="fade-in bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl p-5 card-hover cursor-pointer">
+              <img src="${r.imagepath}" alt="${r.name}" class="w-full h-48 object-cover rounded-xl mb-4">
+              <h3 class="text-2xl text-orange-500 font-semibold mb-2">${r.name}</h3>
+              <p class="text-gray-300"><strong>ETA:</strong> ${r.delivery_time}</p>
+              <p class="text-gray-300"><strong>Address:</strong> ${r.address}</p>
+              <p class="text-gray-300"><strong>Cuisine:</strong> ${r.cuisine_type}</p>
+            </div>
+          </a>
+        `);
+      });
+
+      // Trigger animation for loaded elements
+      $(window).trigger("scroll");
+    },
+    error: function () {
+      $("#restaurants").html(`
+        <p class="text-center text-gray-400 text-lg col-span-full">Failed to load restaurants. Please try again later.</p>
+      `);
+    },
+  });
+});
+```
+
+---
+
+## 🧠 Backend Example (Java Spring / Servlet)
+
+Your backend endpoint `/api/restaurants` should return JSON like:
+
+```json
+[
+  {
+    "restaurant_id": 1,
+    "name": "Spice Hub",
+    "delivery_time": "30 mins",
+    "address": "123 Main Street",
+    "cuisine_type": "Indian",
+    "imagepath": "https://images.unsplash.com/photo-1555992336-cbf6fa9b93a3"
+  },
+  {
+    "restaurant_id": 2,
+    "name": "Pizza Planet",
+    "delivery_time": "25 mins",
+    "address": "88 Food Avenue",
+    "cuisine_type": "Italian",
+    "imagepath": "https://images.unsplash.com/photo-1600891964599-f61ba0e24092"
+  }
+]
+```
+
+If you’re using a Java servlet:
+
+```java
+@WebServlet("/api/restaurants")
+public class RestaurantAPI extends HttpServlet {
+    protected void doGet(HttpServletRequest request, HttpServletResponse response) throws IOException {
+        response.setContentType("application/json");
+        List<Restaurant> restaurants = new RestaurantDAO().getAllRestaurants();
+        new Gson().toJson(restaurants, response.getWriter());
+    }
+}
+```
+
+---
+
+## 🌈 Result:
+
+* Ultra-smooth Tailwind animations
+* Fetches real data from backend dynamically
+* Clean file separation (HTML / CSS / JS)
+* Fully responsive and modern design
+
+---
+
+Would you like me to extend this so that when the user clicks a restaurant card, it redirects to `menu.html` and **automatically fetches that restaurant’s menu from backend (by ID)** too?
+If yes, I’ll add the second page (`menu.html + menu.js`).
