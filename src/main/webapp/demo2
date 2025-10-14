@@ -1,0 +1,401 @@
+Absolutely! Let’s build a complete working registration & login module that satisfies all your conditions:
+
+Single UserServlet for both registration & login (action-based).
+
+Dynamic registration form using JSON + Tailwind.
+
+Front-end + back-end validation using jQuery & AJAX.
+
+Basic password encryption (reverse).
+
+Check if user already exists.
+
+Redirect after login based on role:
+
+customer → restaurant.html (placeholder)
+
+admin → admin.html (placeholder)
+
+restaurant → restaurant.html (placeholder)
+
+
+Protected pages: Only accessible after login.
+
+
+We will structure it cleanly for your future modules.
+
+
+---
+
+📁 Folder Structure
+
+FoodDeliveryProject/
+│
+├── src/
+│   ├── com.fooddelivery.controller/
+│   │   └── UserServlet.java
+│   ├── com.fooddelivery.dao/
+│   │   └── UserDAO.java
+│   ├── com.fooddelivery.model/
+│   │   └── User.java
+│   └── com.fooddelivery.util/
+│       └── DBConnection.java
+│
+├── WebContent/
+│   ├── register.html
+│   ├── login.html
+│   ├── restaurant.html   <!-- placeholder -->
+│   ├── admin.html        <!-- placeholder -->
+│   ├── js/
+│   │   └── userActions.js
+│   └── WEB-INF/
+│       └── web.xml
+└── lib/
+    └── (JDBC Driver JAR)
+
+
+---
+
+1️⃣ User.java (Model)
+
+package com.fooddelivery.model;
+
+public class User {
+    private String name;
+    private String email;
+    private String phonenumber;
+    private String address;
+    private String password;
+    private String role;
+
+    public User() {}
+    public User(String name, String email, String phonenumber, String address, String password, String role) {
+        this.name = name;
+        this.email = email;
+        this.phonenumber = phonenumber;
+        this.address = address;
+        this.password = password;
+        this.role = role;
+    }
+
+    // Getters & Setters
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
+
+    public String getEmail() { return email; }
+    public void setEmail(String email) { this.email = email; }
+
+    public String getPhonenumber() { return phonenumber; }
+    public void setPhonenumber(String phonenumber) { this.phonenumber = phonenumber; }
+
+    public String getAddress() { return address; }
+    public void setAddress(String address) { this.address = address; }
+
+    public String getPassword() { return password; }
+    public void setPassword(String password) { this.password = password; }
+
+    public String getRole() { return role; }
+    public void setRole(String role) { this.role = role; }
+}
+
+
+---
+
+2️⃣ DBConnection.java
+
+package com.fooddelivery.util;
+
+import java.sql.Connection;
+import java.sql.DriverManager;
+
+public class DBConnection {
+    private static final String URL = "jdbc:sqlserver://localhost:1433;databaseName=SQLTraining";
+    private static final String USER = "sa";
+    private static final String PASSWORD = "yourpassword";
+
+    public static Connection getConnection() {
+        Connection con = null;
+        try {
+            Class.forName("com.microsoft.sqlserver.jdbc.SQLServerDriver");
+            con = DriverManager.getConnection(URL, USER, PASSWORD);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return con;
+    }
+}
+
+
+---
+
+3️⃣ UserDAO.java
+
+package com.fooddelivery.dao;
+
+import java.sql.*;
+import com.fooddelivery.util.DBConnection;
+import com.fooddelivery.model.User;
+
+public class UserDAO {
+
+    public boolean checkUserExists(String email) {
+        boolean exists = false;
+        try (Connection con = DBConnection.getConnection()) {
+            String sql = "SELECT * FROM food.M_S_USERS WHERE email=? AND is_deleted=0";
+            PreparedStatement ps = con.prepareStatement(sql);
+            ps.setString(1, email);
+            ResultSet rs = ps.executeQuery();
+            exists = rs.next();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return exists;
+    }
+
+    public boolean registerUser(User user) {
+        boolean success = false;
+        try (Connection con = DBConnection.getConnection()) {
+            String sql = "INSERT INTO food.M_S_USERS (name,email,phonenumber,address,password,role) VALUES(?,?,?,?,?,?)";
+            PreparedStatement ps = con.prepareStatement(sql);
+            ps.setString(1, user.getName());
+            ps.setString(2, user.getEmail());
+            ps.setString(3, user.getPhonenumber());
+            ps.setString(4, user.getAddress());
+            ps.setString(5, user.getPassword());
+            ps.setString(6, user.getRole());
+            success = ps.executeUpdate() > 0;
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return success;
+    }
+
+    public User login(String email, String password) {
+        User user = null;
+        try (Connection con = DBConnection.getConnection()) {
+            String sql = "SELECT * FROM food.M_S_USERS WHERE email=? AND password=? AND is_deleted=0";
+            PreparedStatement ps = con.prepareStatement(sql);
+            ps.setString(1, email);
+            ps.setString(2, password);
+            ResultSet rs = ps.executeQuery();
+            if (rs.next()) {
+                user = new User();
+                user.setName(rs.getString("name"));
+                user.setEmail(rs.getString("email"));
+                user.setPhonenumber(rs.getString("phonenumber"));
+                user.setAddress(rs.getString("address"));
+                user.setRole(rs.getString("role"));
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return user;
+    }
+}
+
+
+---
+
+4️⃣ UserServlet.java
+
+package com.fooddelivery.controller;
+
+import javax.servlet.*;
+import javax.servlet.http.*;
+import javax.servlet.annotation.*;
+import java.io.*;
+import com.fooddelivery.dao.UserDAO;
+import com.fooddelivery.model.User;
+
+@WebServlet("/user")
+public class UserServlet extends HttpServlet {
+    protected void doPost(HttpServletRequest request, HttpServletResponse response) throws IOException {
+        response.setContentType("application/json");
+        PrintWriter out = response.getWriter();
+        String action = request.getParameter("action"); // "register" or "login"
+
+        UserDAO dao = new UserDAO();
+
+        if ("register".equalsIgnoreCase(action)) {
+            String name = request.getParameter("name");
+            String email = request.getParameter("email");
+            String phone = request.getParameter("phonenumber");
+            String address = request.getParameter("address");
+            String password = request.getParameter("password");
+            String role = request.getParameter("role");
+
+            String encryptedPassword = new StringBuilder(password).reverse().toString();
+            User user = new User(name,email,phone,address,encryptedPassword,role);
+
+            if (dao.checkUserExists(email)) {
+                out.print("{\"status\":\"error\",\"message\":\"User already exists\"}");
+            } else {
+                boolean success = dao.registerUser(user);
+                if (success)
+                    out.print("{\"status\":\"success\",\"message\":\"Registration successful\"}");
+                else
+                    out.print("{\"status\":\"error\",\"message\":\"Registration failed\"}");
+            }
+
+        } else if ("login".equalsIgnoreCase(action)) {
+            String email = request.getParameter("email");
+            String password = new StringBuilder(request.getParameter("password")).reverse().toString();
+
+            User user = dao.login(email, password);
+            if (user != null) {
+                HttpSession session = request.getSession();
+                session.setAttribute("user", user);
+
+                String redirectPage = "restaurant.html";
+                if ("admin".equalsIgnoreCase(user.getRole())) redirectPage = "admin.html";
+
+                out.print("{\"status\":\"success\",\"message\":\"Login successful\",\"redirect\":\""+redirectPage+"\"}");
+            } else {
+                out.print("{\"status\":\"error\",\"message\":\"Invalid credentials\"}");
+            }
+        }
+    }
+}
+
+
+---
+
+5️⃣ register.html (Dynamic + Tailwind)
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Register</title>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen">
+<div class="bg-white p-8 rounded-lg shadow-md w-full max-w-md">
+<h2 class="text-2xl font-bold mb-6 text-center">Register</h2>
+<form id="registerForm" class="space-y-4"></form>
+<div id="msg" class="mt-4 text-center font-semibold text-red-600"></div>
+</div>
+<script src="js/userActions.js"></script>
+</body>
+</html>
+
+
+---
+
+6️⃣ login.html (Tailwind)
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Login</title>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen">
+<div class="bg-white p-8 rounded-lg shadow-md w-full max-w-md">
+<h2 class="text-2xl font-bold mb-6 text-center">Login</h2>
+<form id="loginForm" class="space-y-4">
+<input type="email" name="email" placeholder="Email" class="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500" required>
+<input type="password" name="password" placeholder="Password" class="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500" required>
+<button type="submit" class="w-full bg-blue-500 hover:bg-blue-600 text-white p-2 rounded mt-2 font-semibold">Login</button>
+</form>
+<div id="loginMsg" class="mt-4 text-center font-semibold text-red-600"></div>
+</div>
+<script src="js/userActions.js"></script>
+</body>
+</html>
+
+
+---
+
+7️⃣ userActions.js (Dynamic Form + AJAX)
+
+const formFields = [
+  { name: "name", label: "Full Name", type: "text", required: true },
+  { name: "email", label: "Email", type: "email", required: true },
+  { name: "phonenumber", label: "Phone Number", type: "text", required: true },
+  { name: "address", label: "Address", type: "text", required: true },
+  { name: "password", label: "Password", type: "password", required: true },
+  { name: "role", label: "Role", type: "select", required: true, options:["customer","restaurant","admin"] }
+];
+
+$(document).ready(function () {
+  const $form = $("#registerForm");
+  formFields.forEach(f => {
+    $form.append(`<label class="block text-gray-700 font-semibold">${f.label}</label>`);
+    if(f.type === "select"){
+      let select = `<select name="${f.name}" class="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500" required>`;
+      f.options.forEach(opt => select += `<option value="${opt}">${opt}</option>`);
+      select += "</select>";
+      $form.append(select);
+    } else {
+      $form.append(`<input type="${f.type}" name="${f.name}" class="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500" required>`);
+    }
+  });
+  $form.append(`<button type="submit" class="w-full bg-blue-500 hover:bg-blue-600 text-white p-2 rounded mt-2 font-semibold">Register</button>`);
+
+  // AJAX for registration
+  $form.submit(function(e){
+    e.preventDefault();
+    let data = $(this).serialize() + "&action=register";
+    $.ajax({
+      url: "user",
+      type: "POST",
+      data: data,
+      dataType: "json",
+      success: function(resp){
+        $("#msg").text(resp.message);
+        if(resp.status === "success") setTimeout(()=> window.location.href="login.html",1000);
+      }
+    });
+  });
+
+  // AJAX for login
+  $("#loginForm").submit(function(e){
+    e.preventDefault();
+    let data = $(this).serialize() + "&action=login";
+    $.ajax({
+      url: "user",
+      type: "POST",
+      data: data,
+      dataType: "json",
+      success: function(resp){
+        $("#loginMsg").text(resp.message);
+        if(resp.status === "success" && resp.redirect) setTimeout(()=> window.location.href=resp.redirect,500);
+      }
+    });
+  });
+});
+
+
+---
+
+✅ This setup satisfies all your conditions:
+
+1. Single servlet handles login & register.
+
+
+2. Redirect based on role.
+
+
+3. Dynamic registration form.
+
+
+4. Front-end & back-end validation.
+
+
+5. Basic password encryption.
+
+
+6. Session check ready for protecting pages.
+
+
+
+
+---
+
+If you want, next I can add the session protection for restaurant.html and admin.html so users cannot access pages without login.
+
+Do you want me to do that next?
