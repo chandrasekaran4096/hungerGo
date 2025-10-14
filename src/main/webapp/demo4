@@ -1,0 +1,209 @@
+Perfect! Let’s create a robust UserServlet that satisfies all your conditions:
+
+Single servlet handles both registration and login.
+
+Redirect dynamically based on role:
+
+customer → restaurant.html
+
+admin → admin.html
+
+restaurant → restaurantowner.html
+
+
+Uses Jackson for JSON responses.
+
+Handles all validations and checks (user exists, encrypt password).
+
+Session is set after login to protect future pages.
+
+
+Here’s the full servlet code:
+
+
+---
+
+package com.fooddelivery.controller;
+
+import javax.servlet.*;
+import javax.servlet.http.*;
+import javax.servlet.annotation.*;
+import java.io.*;
+import java.util.HashMap;
+import java.util.Map;
+
+import com.fooddelivery.dao.UserDAO;
+import com.fooddelivery.model.User;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+@WebServlet("/user")
+public class UserServlet extends HttpServlet {
+
+    private static final long serialVersionUID = 1L;
+
+    protected void doPost(HttpServletRequest request, HttpServletResponse response) throws IOException {
+        response.setContentType("application/json");
+        response.setCharacterEncoding("UTF-8");
+        PrintWriter out = response.getWriter();
+
+        String action = request.getParameter("action"); // "register" or "login"
+        UserDAO dao = new UserDAO();
+        Map<String, Object> jsonResponse = new HashMap<>();
+        ObjectMapper mapper = new ObjectMapper();
+
+        try {
+            if ("register".equalsIgnoreCase(action)) {
+                // Get parameters from form
+                String name = request.getParameter("name");
+                String email = request.getParameter("email");
+                String phone = request.getParameter("phonenumber");
+                String address = request.getParameter("address");
+                String password = request.getParameter("password");
+                String role = request.getParameter("role");
+
+                // Basic input validation
+                if (name == null || email == null || password == null || role == null || name.isEmpty() || email.isEmpty() || password.isEmpty() || role.isEmpty()) {
+                    jsonResponse.put("status", "error");
+                    jsonResponse.put("message", "Please fill all required fields");
+                    out.print(mapper.writeValueAsString(jsonResponse));
+                    return;
+                }
+
+                // Encrypt password (simple reverse)
+                String encryptedPassword = new StringBuilder(password).reverse().toString();
+                User user = new User(name, email, phone, address, encryptedPassword, role);
+
+                // Check if user exists
+                if (dao.checkUserExists(email)) {
+                    jsonResponse.put("status", "error");
+                    jsonResponse.put("message", "User already exists");
+                } else {
+                    boolean success = dao.registerUser(user);
+                    if (success) {
+                        jsonResponse.put("status", "success");
+                        jsonResponse.put("message", "Registration successful");
+                    } else {
+                        jsonResponse.put("status", "error");
+                        jsonResponse.put("message", "Registration failed");
+                    }
+                }
+
+            } else if ("login".equalsIgnoreCase(action)) {
+                String email = request.getParameter("email");
+                String password = request.getParameter("password");
+
+                // Basic validation
+                if (email == null || password == null || email.isEmpty() || password.isEmpty()) {
+                    jsonResponse.put("status", "error");
+                    jsonResponse.put("message", "Please enter email and password");
+                    out.print(mapper.writeValueAsString(jsonResponse));
+                    return;
+                }
+
+                // Encrypt password for comparison
+                String encryptedPassword = new StringBuilder(password).reverse().toString();
+
+                User user = dao.login(email, encryptedPassword);
+                if (user != null) {
+                    // Create session
+                    HttpSession session = request.getSession();
+                    session.setAttribute("user", user);
+
+                    jsonResponse.put("status", "success");
+                    jsonResponse.put("message", "Login successful");
+
+                    // Redirect based on role
+                    String redirectPage = "restaurant.html"; // default customer
+                    if ("admin".equalsIgnoreCase(user.getRole())) redirectPage = "admin.html";
+                    else if ("restaurant".equalsIgnoreCase(user.getRole())) redirectPage = "restaurantowner.html";
+
+                    jsonResponse.put("redirect", redirectPage);
+
+                } else {
+                    jsonResponse.put("status", "error");
+                    jsonResponse.put("message", "Invalid credentials");
+                }
+            } else {
+                jsonResponse.put("status", "error");
+                jsonResponse.put("message", "Invalid action");
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            jsonResponse.put("status", "error");
+            jsonResponse.put("message", "Server error: " + e.getMessage());
+        }
+
+        // Send JSON response
+        out.print(mapper.writeValueAsString(jsonResponse));
+        out.flush();
+    }
+
+    // Optionally handle GET requests for session check
+    protected void doGet(HttpServletRequest request, HttpServletResponse response) throws IOException {
+        response.setContentType("application/json");
+        response.setCharacterEncoding("UTF-8");
+        PrintWriter out = response.getWriter();
+        ObjectMapper mapper = new ObjectMapper();
+        Map<String, Object> jsonResponse = new HashMap<>();
+
+        HttpSession session = request.getSession(false);
+        if (session != null && session.getAttribute("user") != null) {
+            jsonResponse.put("loggedIn", true);
+            User user = (User) session.getAttribute("user");
+            jsonResponse.put("role", user.getRole());
+        } else {
+            jsonResponse.put("loggedIn", false);
+        }
+
+        out.print(mapper.writeValueAsString(jsonResponse));
+        out.flush();
+    }
+}
+
+
+---
+
+✅ Features in this Servlet:
+
+1. Single servlet handles both registration and login using action parameter.
+
+
+2. Basic input validation to avoid null/empty inputs.
+
+
+3. User existence check during registration.
+
+
+4. Password encryption using simple reverse (you can replace with MD5/SHA later).
+
+
+5. Session creation after successful login.
+
+
+6. Dynamic redirection based on role:
+
+customer → restaurant.html
+
+admin → admin.html
+
+restaurant → restaurantowner.html
+
+
+
+7. Returns clean JSON response using Jackson.
+
+
+8. doGet() included for session check (useful to protect pages later).
+
+
+9. Handles server errors gracefully.
+
+
+
+
+---
+
+If you want, I can also provide the dynamic Tailwind + JSON registration form + AJAX code that works perfectly with this servlet, including role selection for customer, admin, restaurant owner.
+
+Do you want me to provide that next?
+
