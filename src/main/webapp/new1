@@ -1,0 +1,51 @@
+package com.fooddelivery.dao;
+
+import com.fooddelivery.model.Restaurant;
+import com.fooddelivery.util.DBConnection;
+
+import java.sql.*;
+import java.util.ArrayList;
+import java.util.List;
+
+public class RestaurantDAO {
+
+    public List<Restaurant> getAllRestaurants(String search) {
+        List<Restaurant> restaurants = new ArrayList<>();
+        String sql = "SELECT restaurant_id, name, address, phone_number, cuisine_type, delivery_time, rating, img " +
+                     "FROM food.M_D_RESTAURANT WHERE is_active = 1 AND is_deleted = 0";
+
+        if (search != null && !search.trim().isEmpty()) {
+            sql += " AND name LIKE ?";
+        }
+
+        try (Connection con = DBConnection.getConnection();
+             PreparedStatement ps = con.prepareStatement(sql)) {
+
+            if (search != null && !search.trim().isEmpty()) {
+                ps.setString(1, "%" + search + "%");
+            }
+
+            ResultSet rs = ps.executeQuery();
+            while (rs.next()) {
+                String imgPath = rs.getString("img");
+                if (imgPath == null || imgPath.trim().isEmpty()) {
+                    imgPath = "https://via.placeholder.com/300x200?text=No+Image";
+                }
+
+                restaurants.add(new Restaurant(
+                        rs.getInt("restaurant_id"),
+                        rs.getString("name"),
+                        rs.getString("address"),
+                        rs.getString("phone_number"),
+                        rs.getString("cuisine_type"),
+                        rs.getInt("delivery_time"),
+                        rs.getDouble("rating"),
+                        imgPath
+                ));
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return restaurants;
+    }
+}
