@@ -1,0 +1,572 @@
+Nice — I’ve prepared a complete, production-ready **profile page** (front-end + backend) that fits your existing BiteBuddy theme (Tailwind glassmorphism, same nav, responsive), shows the logged-in user’s details from the `food.M_S_USERS` table, and allows editing **address** and **phone number** only (password & email remain read-only). The backend is implemented using **Java Servlets + JDBC** (SQL Server), returns/accepts JSON, uses prepared statements, and uses session-based authentication (assumes `userid` stored in session after login).
+
+Below you’ll find:
+
+* Frontend files (HTML + JS) — uses Tailwind CDN + jQuery + fetch/update via AJAX.
+* Backend Java files (model, DAO, DB util, two servlets).
+* `web.xml` snippet for servlet mapping and session example.
+* Notes: dependencies and security points.
+
+Do not change the parts you rely on (for example: session attribute name). If your login logic differs, adapt session key accordingly.
+
+---
+
+# Frontend
+
+Place these files in your webapp (e.g., `webapp/profile/`).
+
+## 1) `profile.html`
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>BiteBuddy — Profile</title>
+
+  <!-- Tailwind (CDN) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Google font -->
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;500;700&display=swap" rel="stylesheet">
+
+  <!-- jQuery -->
+  <script src="https://code.jquery.com/jquery-3.6.4.min.js"></script>
+
+  <!-- Custom CSS (small extras) -->
+  <style>
+    body { font-family: 'Poppins', sans-serif; background: #0f0f0f; color: #fff; }
+    .glass { background: rgba(255,255,255,0.04); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.06); border-radius: 16px; }
+    .input-glass { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); padding: 10px 12px; border-radius: 10px; color: #fff; }
+    .disabled { opacity: 0.6; pointer-events: none; }
+  </style>
+</head>
+<body class="min-h-screen">
+
+  <!-- Navbar (same theme as other pages) -->
+  <nav class="header fixed w-full z-40 top-0 left-0 bg-black/60 backdrop-blur-md px-8 py-4 flex items-center justify-between">
+    <h1 class="text-2xl font-bold text-orange-400">BiteBuddy</h1>
+    <ul class="flex gap-6">
+      <li><a href="/index.html" class="hover:text-orange-400">Home</a></li>
+      <li><a href="/restaurants.html" class="hover:text-orange-400">Restaurants</a></li>
+      <li><a href="/cart/cart.html" class="hover:text-orange-400">Cart</a></li>
+      <li><a href="/orders.html" class="hover:text-orange-400">Orders</a></li>
+      <li><a href="/profile/profile.html" class="text-orange-400 font-semibold">Profile</a></li>
+      <li><a href="/logout" class="hover:text-orange-400">Logout</a></li>
+    </ul>
+  </nav>
+
+  <main class="pt-24 px-6 pb-12 max-w-5xl mx-auto">
+    <section class="glass p-8">
+      <div class="flex flex-col md:flex-row gap-6">
+        <!-- Profile card -->
+        <div class="w-full md:w-1/3 flex flex-col items-center text-center">
+          <div class="w-32 h-32 rounded-full bg-gray-700 flex items-center justify-center overflow-hidden shadow-lg">
+            <!-- simple avatar fallback -->
+            <img id="profileAvatar" src="/assets/images/avatar-placeholder.png" alt="avatar" class="w-full h-full object-cover">
+          </div>
+          <h2 id="profileName" class="mt-4 text-2xl font-semibold text-orange-400">Loading...</h2>
+          <p id="profileRole" class="text-sm text-gray-300 mt-1"></p>
+        </div>
+
+        <!-- Details & edit form -->
+        <div class="w-full md:w-2/3">
+          <h3 class="text-xl font-semibold mb-3 text-orange-300">Your Details</h3>
+
+          <div class="grid grid-cols-1 gap-4">
+            <div>
+              <label class="block text-sm text-gray-300">Name</label>
+              <input id="name" type="text" class="w-full input-glass mt-1" disabled />
+            </div>
+
+            <div>
+              <label class="block text-sm text-gray-300">Email</label>
+              <input id="email" type="email" class="w-full input-glass mt-1" disabled />
+            </div>
+
+            <div>
+              <label class="block text-sm text-gray-300">Phone Number</label>
+              <input id="phonenumber" type="tel" class="w-full input-glass mt-1" />
+            </div>
+
+            <div>
+              <label class="block text-sm text-gray-300">Address</label>
+              <textarea id="address" rows="3" class="w-full input-glass mt-1 resize-none"></textarea>
+            </div>
+
+            <div class="flex items-center justify-between mt-2">
+              <div class="text-sm text-gray-400">Last login: <span id="lastLogin">-</span></div>
+              <div class="flex gap-3">
+                <button id="editBtn" class="bg-transparent border border-orange-400 text-orange-400 px-4 py-2 rounded hover:bg-orange-500 hover:text-white transition">Edit</button>
+                <button id="saveBtn" class="bg-orange-400 text-white px-4 py-2 rounded disabled:opacity-60" disabled>Save</button>
+              </div>
+            </div>
+
+            <div id="message" class="mt-2 text-sm"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="profile.js"></script>
+</body>
+</html>
+```
+
+## 2) `profile.js`
+
+Put in same folder (e.g., `webapp/profile/profile.js`). This file fetches `GET /api/user/profile`, populates fields, and calls `POST /api/user/update` to save `phonenumber` and `address`. It uses session-based `userid` on backend.
+
+```javascript
+$(function() {
+  const $name = $("#name");
+  const $email = $("#email");
+  const $phone = $("#phonenumber");
+  const $address = $("#address");
+  const $lastLogin = $("#lastLogin");
+  const $profileName = $("#profileName");
+  const $profileRole = $("#profileRole");
+  const $avatar = $("#profileAvatar");
+  const $editBtn = $("#editBtn");
+  const $saveBtn = $("#saveBtn");
+  const $message = $("#message");
+
+  function showMessage(text, type = "info") {
+    const color = type === "error" ? "text-red-400" : "text-green-400";
+    $message.removeClass().addClass(`${color}`).text(text);
+    setTimeout(() => $message.fadeOut(400, () => $message.show().text("")), 3500);
+  }
+
+  // Disable editing by default
+  function setEditable(editable) {
+    $phone.prop("disabled", !editable);
+    $address.prop("disabled", !editable);
+    $saveBtn.prop("disabled", !editable);
+    if(editable) {
+      $phone.focus();
+    }
+  }
+
+  setEditable(false);
+
+  // Fetch user profile (GET)
+  function loadProfile() {
+    $.ajax({
+      url: "/api/user/profile",
+      method: "GET",
+      dataType: "json",
+      success: function(user) {
+        // populate fields
+        $name.val(user.name);
+        $email.val(user.email);
+        $phone.val(user.phonenumber || "");
+        $address.val(user.address || "");
+        $lastLogin.text(user.lastlogindate ? new Date(user.lastlogindate).toLocaleString() : "-");
+        $profileName.text(user.name);
+        $profileRole.text(user.role || "");
+        if(user.avatar && user.avatar.length) $avatar.attr("src", user.avatar);
+      },
+      error: function(xhr) {
+        if(xhr.status === 401) {
+          // not logged in — redirect to login
+          window.location.href = "/login.html";
+        } else {
+          showMessage("Failed to load profile. Try again later.", "error");
+        }
+      }
+    });
+  }
+
+  loadProfile();
+
+  $editBtn.on("click", function() {
+    setEditable(true);
+  });
+
+  $saveBtn.on("click", function() {
+    const payload = {
+      phonenumber: $phone.val().trim(),
+      address: $address.val().trim()
+    };
+
+    // basic client-side validation
+    if(!payload.address) {
+      showMessage("Address cannot be empty", "error");
+      return;
+    }
+    if(payload.phonenumber && payload.phonenumber.length > 15) {
+      showMessage("Invalid phone number", "error");
+      return;
+    }
+
+    $saveBtn.prop("disabled", true).text("Saving...");
+
+    $.ajax({
+      url: "/api/user/update",
+      method: "POST",
+      contentType: "application/json",
+      data: JSON.stringify(payload),
+      dataType: "json",
+      success: function(res) {
+        if(res.success) {
+          showMessage("Profile updated successfully");
+          setEditable(false);
+          loadProfile(); // refresh
+        } else {
+          showMessage(res.message || "Update failed", "error");
+        }
+      },
+      error: function() {
+        showMessage("Update failed. Please try again.", "error");
+      },
+      complete: function() {
+        $saveBtn.prop("disabled", false).text("Save");
+      }
+    });
+  });
+});
+```
+
+---
+
+# Backend (Java Servlets + JDBC)
+
+Files (package `com.tap.backend.user` for example). Adjust package names and paths for your project.
+
+## Dependencies
+
+Add to `pom.xml` (Maven) or provide jars:
+
+* `com.microsoft.sqlserver:mssql-jdbc` (SQL Server driver)
+* `com.google.code.gson:gson` (for JSON)
+  (If using Gradle/Maven add appropriate versions)
+
+---
+
+## 1) `DBConnection.java`
+
+Utility to get a connection to SQL Server. Update URL/credentials.
+
+```java
+package com.tap.backend.user;
+
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.SQLException;
+
+public class DBConnection {
+    private static final String URL = "jdbc:sqlserver://localhost:1433;databaseName=SQLTraining;encrypt=false;";
+    private static final String USER = "db_username";
+    private static final String PASS = "db_password";
+
+    static {
+        try {
+            Class.forName("com.microsoft.sqlserver.jdbc.SQLServerDriver");
+        } catch (ClassNotFoundException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public static Connection getConnection() throws SQLException {
+        return DriverManager.getConnection(URL, USER, PASS);
+    }
+}
+```
+
+> **Note:** replace `db_username` and `db_password` with your DB credentials. If using integrated authentication, adjust connection string.
+
+---
+
+## 2) `User.java` (model)
+
+```java
+package com.tap.backend.user;
+
+public class User {
+    private int userid;
+    private String name;
+    private String email;
+    private String phonenumber;
+    private String address;
+    private String role;
+    private String lastlogindate;
+    private String avatar; // optional URL/path
+
+    // getters and setters
+    public int getUserid() { return userid; }
+    public void setUserid(int userid) { this.userid = userid; }
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
+    public String getEmail() { return email; }
+    public void setEmail(String email) { this.email = email; }
+    public String getPhonenumber() { return phonenumber; }
+    public void setPhonenumber(String phonenumber) { this.phonenumber = phonenumber; }
+    public String getAddress() { return address; }
+    public void setAddress(String address) { this.address = address; }
+    public String getRole() { return role; }
+    public void setRole(String role) { this.role = role; }
+    public String getLastlogindate() { return lastlogindate; }
+    public void setLastlogindate(String lastlogindate) { this.lastlogindate = lastlogindate; }
+    public String getAvatar() { return avatar; }
+    public void setAvatar(String avatar) { this.avatar = avatar; }
+}
+```
+
+---
+
+## 3) `UserDAO.java`
+
+Handles `getUserById` and `updateUserContact`.
+
+```java
+package com.tap.backend.user;
+
+import java.sql.*;
+import java.time.format.DateTimeFormatter;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+
+public class UserDAO {
+
+    public User getUserById(int userid) {
+        String sql = "SELECT userid, name, email, phonenumber, address, role, lastlogindate FROM food.M_S_USERS WHERE userid = ? AND is_deleted = 0";
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, userid);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    User u = new User();
+                    u.setUserid(rs.getInt("userid"));
+                    u.setName(rs.getString("name"));
+                    u.setEmail(rs.getString("email"));
+                    u.setPhonenumber(rs.getString("phonenumber"));
+                    u.setAddress(rs.getString("address"));
+                    u.setRole(rs.getString("role"));
+                    Timestamp t = rs.getTimestamp("lastlogindate");
+                    if (t != null) {
+                        u.setLastlogindate(t.toInstant().toString());
+                    }
+                    // optional: set avatar if you store it elsewhere
+                    return u;
+                }
+            }
+        } catch (SQLException ex) {
+            ex.printStackTrace();
+        }
+        return null;
+    }
+
+    public boolean updateUserContact(int userid, String phone, String address) {
+        String sql = "UPDATE food.M_S_USERS SET phonenumber = ?, address = ?, updated_at = GETDATE() WHERE userid = ? AND is_deleted = 0";
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, phone);
+            ps.setString(2, address);
+            ps.setInt(3, userid);
+            int updated = ps.executeUpdate();
+            return updated > 0;
+        } catch (SQLException ex) {
+            ex.printStackTrace();
+        }
+        return false;
+    }
+}
+```
+
+---
+
+## 4) `UserProfileServlet.java` — GET `/api/user/profile`
+
+Fetches the currently logged-in user (from session). Returns JSON of user object. If not logged in returns 401.
+
+```java
+package com.tap.backend.user;
+
+import com.google.gson.Gson;
+
+import javax.servlet.ServletException;
+import javax.servlet.annotation.WebServlet;
+import javax.servlet.http.*;
+import java.io.IOException;
+
+@WebServlet("/api/user/profile")
+public class UserProfileServlet extends HttpServlet {
+    private final Gson gson = new Gson();
+    private final UserDAO dao = new UserDAO();
+
+    @Override
+    protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        HttpSession session = req.getSession(false);
+        if(session == null || session.getAttribute("userid") == null) {
+            resp.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            resp.setContentType("application/json");
+            resp.getWriter().write("{\"error\":\"Not authenticated\"}");
+            return;
+        }
+
+        int userid = (int) session.getAttribute("userid");
+        User user = dao.getUserById(userid);
+        if(user == null) {
+            resp.setStatus(HttpServletResponse.SC_NOT_FOUND);
+            resp.setContentType("application/json");
+            resp.getWriter().write("{\"error\":\"User not found\"}");
+            return;
+        }
+
+        resp.setContentType("application/json");
+        resp.getWriter().write(gson.toJson(user));
+    }
+}
+```
+
+---
+
+## 5) `UpdateUserServlet.java` — POST `/api/user/update`
+
+Validates and updates `phonenumber` and `address`. Returns success/failure JSON.
+
+```java
+package com.tap.backend.user;
+
+import com.google.gson.Gson;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+
+import javax.servlet.annotation.WebServlet;
+import javax.servlet.http.*;
+import java.io.BufferedReader;
+import java.io.IOException;
+
+@WebServlet("/api/user/update")
+public class UpdateUserServlet extends HttpServlet {
+    private final Gson gson = new Gson();
+    private final UserDAO dao = new UserDAO();
+
+    @Override
+    protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        HttpSession session = req.getSession(false);
+        resp.setContentType("application/json");
+        if(session == null || session.getAttribute("userid") == null) {
+            resp.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            resp.getWriter().write("{\"success\":false, \"message\":\"Not authenticated\"}");
+            return;
+        }
+
+        int userid = (int) session.getAttribute("userid");
+
+        // read JSON body
+        StringBuilder sb = new StringBuilder();
+        try(BufferedReader reader = req.getReader()) {
+            String line;
+            while((line = reader.readLine()) != null) sb.append(line);
+        }
+        JsonObject json = JsonParser.parseString(sb.toString()).getAsJsonObject();
+        String phonenumber = json.has("phonenumber") ? json.get("phonenumber").getAsString() : null;
+        String address = json.has("address") ? json.get("address").getAsString() : null;
+
+        // server-side validation
+        if(address == null || address.trim().isEmpty()) {
+            resp.getWriter().write("{\"success\":false, \"message\":\"Address is required\"}");
+            return;
+        }
+        if(phonenumber != null && phonenumber.length() > 15) {
+            resp.getWriter().write("{\"success\":false, \"message\":\"Invalid phone number\"}");
+            return;
+        }
+
+        boolean ok = dao.updateUserContact(userid, phonenumber, address);
+        if(ok) {
+            resp.getWriter().write("{\"success\":true}");
+        } else {
+            resp.getWriter().write("{\"success\":false, \"message\":\"Update failed\"}");
+        }
+    }
+}
+```
+
+---
+
+## 6) `web.xml` snippet (if not using annotations or to set session config)
+
+If you prefer explicit mapping or want to set session timeout:
+
+```xml
+<web-app>
+  <!-- ensure UTF-8 -->
+  <filter>
+    <filter-name>encodingFilter</filter-name>
+    <filter-class>org.apache.catalina.filters.SetCharacterEncodingFilter</filter-class>
+    <init-param>
+      <param-name>encoding</param-name>
+      <param-value>UTF-8</param-value>
+    </init-param>
+    <init-param>
+      <param-name>ignore</param-name>
+      <param-value>false</param-value>
+    </init-param>
+  </filter>
+  <filter-mapping>
+    <filter-name>encodingFilter</filter-name>
+    <url-pattern>/*</url-pattern>
+  </filter-mapping>
+
+  <!-- optional session timeout -->
+  <session-config>
+    <session-timeout>30</session-timeout>
+  </session-config>
+</web-app>
+```
+
+---
+
+# How it fits into your existing app & deployment notes
+
+1. **Session user id:** the servlets expect that after login you set `session.setAttribute("userid", theUserId);`. If your login uses a different attribute name, update servlets or adapt the JS redirect logic.
+
+2. **DB credentials:** update `DBConnection.URL/USER/PASS` to match your environment. If SQL Server on a different host/port, change the URL. For production, use a connection pool (e.g., HikariCP or your app server datasource) instead of raw `DriverManager`.
+
+3. **Dependencies:** include `gson` and `mssql-jdbc`. Example Maven artifacts:
+
+```xml
+<dependency>
+  <groupId>com.microsoft.sqlserver</groupId>
+  <artifactId>mssql-jdbc</artifactId>
+  <version>10.2.0.jre11</version>
+</dependency>
+<dependency>
+  <groupId>com.google.code.gson</groupId>
+  <artifactId>gson</artifactId>
+  <version>2.10.1</version>
+</dependency>
+```
+
+4. **Security & validation:** we only allow updating phone & address to limit risk. Always validate/sanitize at server side (already added basic checks). For further protection enable CSRF tokens and HTTPS.
+
+5. **Avatar:** I included an `avatar` field in `User` model (optional). If you store image path in DB later, set it to `avatar` column or another table and adjust DAO to return it.
+
+6. **Error handling & UX:** front-end shows friendly messages and redirects to login on 401. You can extend to show modal confirmations.
+
+7. **Optional enhancement:** Add `Change Password` flow (separate form), email change with verification, or profile image upload (multipart servlet) later.
+
+---
+
+# Quick testing checklist
+
+1. Add the Java files to your project, compile, and deploy to Tomcat/Jetty.
+2. Ensure DB driver & gson JARs are on classpath.
+3. Ensure user session is created on login with `userid`.
+4. Place `profile.html` & `profile.js` in webapp and open `/profile/profile.html`.
+5. If not logged in, page redirects to `/login.html`.
+6. Edit phone/address and click Save — server updates DB and page reloads data.
+
+---
+
+If you want, I can now:
+
+* Provide the exact `pom.xml` dependencies and a sample `login` servlet to set `userid` in session, OR
+* Add the **Change Password** and **avatar upload** flows, OR
+* Convert DB connection to use a DataSource (Tomcat JNDI) for production.
+
+Which one should I do next?
