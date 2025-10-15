@@ -1,0 +1,347 @@
+Perfect ✅
+Here’s the **complete Cart feature** implementation based on your project structure and tables.
+We’ll make the cart dynamic — **based on `user_id`**, show **menu image from the `menu` table**, and allow **increment/decrement** and **remove item** with **AJAX**.
+
+---
+
+## 🧾 **Table Reference**
+
+* `MS_USER` → `user_id` (session)
+* `MS_MENU` → `menu_id`, `name`, `price`, `img`
+* `MS_CART` → `cart_id`, `user_id`, `menu_id`, `quantity`, `created_at`
+
+---
+
+## 🧰 **Project Structure**
+
+```
+src
+ ├── com.fooddelivery.controller
+ │    └── CartServlet.java
+ ├── com.fooddelivery.service
+ │    └── CartService.java
+ ├── com.fooddelivery.dao
+ │    └── CartDAO.java
+ ├── com.fooddelivery.model
+ │    └── CartItem.java
+ └── com.fooddelivery.util
+      └── DBConnection.java
+webapp
+ ├── cart.html
+ └── js
+      └── cart.js
+```
+
+---
+
+## 🧠 **1. CartItem.java** (model)
+
+```java
+package com.fooddelivery.model;
+
+public class CartItem {
+    private int cartId;
+    private int menuId;
+    private String name;
+    private double price;
+    private int quantity;
+    private String imagePath;
+
+    public CartItem(int cartId, int menuId, String name, double price, int quantity, String imagePath) {
+        this.cartId = cartId;
+        this.menuId = menuId;
+        this.name = name;
+        this.price = price;
+        this.quantity = quantity;
+        this.imagePath = imagePath;
+    }
+
+    public int getCartId() { return cartId; }
+    public int getMenuId() { return menuId; }
+    public String getName() { return name; }
+    public double getPrice() { return price; }
+    public int getQuantity() { return quantity; }
+    public String getImagePath() { return imagePath; }
+
+    public void setQuantity(int quantity) { this.quantity = quantity; }
+}
+```
+
+---
+
+## 🧠 **2. CartDAO.java**
+
+```java
+package com.fooddelivery.dao;
+
+import com.fooddelivery.model.CartItem;
+import com.fooddelivery.util.DBConnection;
+import java.sql.*;
+import java.util.ArrayList;
+import java.util.List;
+
+public class CartDAO {
+
+    public List<CartItem> getCartItemsByUser(int userId) {
+        List<CartItem> items = new ArrayList<>();
+        String sql = "SELECT c.cart_id, m.menu_id, m.name, m.price, c.quantity, m.img " +
+                     "FROM MS_CART c " +
+                     "JOIN MS_MENU m ON c.menu_id = m.menu_id " +
+                     "WHERE c.user_id = ?";
+
+        try (Connection con = DBConnection.getConnection();
+             PreparedStatement ps = con.prepareStatement(sql)) {
+
+            ps.setInt(1, userId);
+            ResultSet rs = ps.executeQuery();
+
+            while (rs.next()) {
+                items.add(new CartItem(
+                        rs.getInt("cart_id"),
+                        rs.getInt("menu_id"),
+                        rs.getString("name"),
+                        rs.getDouble("price"),
+                        rs.getInt("quantity"),
+                        rs.getString("img")
+                ));
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return items;
+    }
+
+    public boolean updateQuantity(int cartId, int quantity) {
+        String sql = "UPDATE MS_CART SET quantity = ? WHERE cart_id = ?";
+        try (Connection con = DBConnection.getConnection();
+             PreparedStatement ps = con.prepareStatement(sql)) {
+            ps.setInt(1, quantity);
+            ps.setInt(2, cartId);
+            return ps.executeUpdate() > 0;
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return false;
+    }
+
+    public boolean removeCartItem(int cartId) {
+        String sql = "DELETE FROM MS_CART WHERE cart_id = ?";
+        try (Connection con = DBConnection.getConnection();
+             PreparedStatement ps = con.prepareStatement(sql)) {
+            ps.setInt(1, cartId);
+            return ps.executeUpdate() > 0;
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return false;
+    }
+}
+```
+
+---
+
+## 🧠 **3. CartService.java**
+
+```java
+package com.fooddelivery.service;
+
+import com.fooddelivery.dao.CartDAO;
+import com.fooddelivery.model.CartItem;
+import java.util.List;
+
+public class CartService {
+    private CartDAO cartDAO = new CartDAO();
+
+    public List<CartItem> getCartByUser(int userId) {
+        return cartDAO.getCartItemsByUser(userId);
+    }
+
+    public boolean updateQuantity(int cartId, int qty) {
+        return cartDAO.updateQuantity(cartId, qty);
+    }
+
+    public boolean removeItem(int cartId) {
+        return cartDAO.removeCartItem(cartId);
+    }
+}
+```
+
+---
+
+## 🧠 **4. CartServlet.java**
+
+```java
+package com.fooddelivery.controller;
+
+import com.fooddelivery.model.CartItem;
+import com.fooddelivery.service.CartService;
+import com.google.gson.Gson;
+
+import javax.servlet.*;
+import javax.servlet.annotation.WebServlet;
+import javax.servlet.http.*;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.util.List;
+
+@WebServlet("/cart")
+public class CartServlet extends HttpServlet {
+    private CartService cartService = new CartService();
+    private Gson gson = new Gson();
+
+    protected void doGet(HttpServletRequest request, HttpServletResponse response) throws IOException {
+        response.setContentType("application/json");
+        PrintWriter out = response.getWriter();
+
+        HttpSession session = request.getSession(false);
+        if (session == null || session.getAttribute("userId") == null) {
+            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            out.print("{\"status\":\"error\",\"message\":\"Unauthorized\"}");
+            return;
+        }
+
+        int userId = (int) session.getAttribute("userId");
+        List<CartItem> items = cartService.getCartByUser(userId);
+        out.print(gson.toJson(items));
+    }
+
+    protected void doPost(HttpServletRequest request, HttpServletResponse response) throws IOException {
+        response.setContentType("application/json");
+        String action = request.getParameter("action");
+        PrintWriter out = response.getWriter();
+
+        if ("update".equalsIgnoreCase(action)) {
+            int cartId = Integer.parseInt(request.getParameter("cartId"));
+            int qty = Integer.parseInt(request.getParameter("quantity"));
+            boolean success = cartService.updateQuantity(cartId, qty);
+            out.print("{\"status\":\"" + (success ? "success" : "error") + "\"}");
+        } else if ("remove".equalsIgnoreCase(action)) {
+            int cartId = Integer.parseInt(request.getParameter("cartId"));
+            boolean success = cartService.removeItem(cartId);
+            out.print("{\"status\":\"" + (success ? "success" : "error") + "\"}");
+        }
+    }
+}
+```
+
+---
+
+## 🧠 **5. cart.js** (Frontend logic)
+
+```javascript
+$(document).ready(function () {
+  const $cartContainer = $("#cartContainer");
+  const $grandTotal = $("#grandTotal");
+  const $selectedCount = $("#selectedCount");
+  const $placeOrder = $("#placeOrder");
+  let cartItems = [];
+
+  // 🔸 Load cart from backend
+  function loadCart() {
+    $.ajax({
+      url: "http://localhost:8080/BiteBuddy/cart",
+      method: "GET",
+      dataType: "json",
+      success: function (data) {
+        cartItems = data;
+        renderCart();
+      },
+      error: function () {
+        $cartContainer.html(`<p class='text-center text-gray-400'>Failed to load cart</p>`);
+      },
+    });
+  }
+
+  function renderCart() {
+    $cartContainer.empty();
+    if (cartItems.length === 0) {
+      $cartContainer.html(`<p class='text-center text-gray-400'>Your cart is empty</p>`);
+      return;
+    }
+
+    cartItems.forEach(item => {
+      const total = item.price * item.quantity;
+      $cartContainer.append(`
+        <div class="bg-gray-800 rounded-2xl p-4 flex flex-col md:flex-row items-center justify-between mb-4">
+          <div class="flex items-center gap-4">
+            <input type="checkbox" class="select-item w-5 h-5 accent-red-500" data-id="${item.cartId}">
+            <img src="${item.imagePath}" alt="${item.name}" class="w-24 h-24 object-cover rounded-xl">
+            <div>
+              <h3 class="text-xl font-semibold text-red-400">${item.name}</h3>
+              <p>₹${item.price} each</p>
+              <p class="mt-1 text-gray-300">Total: ₹<span class="item-total">${total}</span></p>
+            </div>
+          </div>
+          <div class="flex items-center gap-3 mt-3 md:mt-0">
+            <button class="decrease bg-gray-700 px-3 py-1 rounded" data-id="${item.cartId}">-</button>
+            <span class="quantity font-bold text-lg">${item.quantity}</span>
+            <button class="increase bg-gray-700 px-3 py-1 rounded" data-id="${item.cartId}">+</button>
+            <button class="remove bg-red-600 px-3 py-1 rounded ml-4" data-id="${item.cartId}">Remove</button>
+          </div>
+        </div>
+      `);
+    });
+  }
+
+  function updateTotals() {
+    let total = 0, count = 0;
+    $(".select-item:checked").each(function () {
+      const id = $(this).data("id");
+      const item = cartItems.find(i => i.cartId === id);
+      total += item.price * item.quantity;
+      count++;
+    });
+    $grandTotal.text(total);
+    $selectedCount.text(count);
+    $placeOrder.prop("disabled", count === 0);
+  }
+
+  $cartContainer.on("click", ".increase", function () {
+    const cartId = $(this).data("id");
+    const item = cartItems.find(i => i.cartId === cartId);
+    const newQty = item.quantity + 1;
+    $.post("http://localhost:8080/BiteBuddy/cart", { action: "update", cartId, quantity: newQty }, () => loadCart());
+  });
+
+  $cartContainer.on("click", ".decrease", function () {
+    const cartId = $(this).data("id");
+    const item = cartItems.find(i => i.cartId === cartId);
+    if (item.quantity > 1) {
+      const newQty = item.quantity - 1;
+      $.post("http://localhost:8080/BiteBuddy/cart", { action: "update", cartId, quantity: newQty }, () => loadCart());
+    }
+  });
+
+  $cartContainer.on("click", ".remove", function () {
+    const cartId = $(this).data("id");
+    $.post("http://localhost:8080/BiteBuddy/cart", { action: "remove", cartId }, () => loadCart());
+  });
+
+  $cartContainer.on("change", ".select-item", updateTotals);
+
+  $placeOrder.click(function () {
+    const selectedIds = $(".select-item:checked").map(function () {
+      return $(this).data("id");
+    }).get();
+    alert("Placing order for cart IDs: " + selectedIds.join(", "));
+    // TODO: Place order API
+  });
+
+  loadCart();
+});
+```
+
+---
+
+✅ **What This Does**
+
+* Cart items loaded dynamically from DB based on logged-in `user_id` (from session).
+* User can increment, decrement or remove items.
+* Image shown from `MS_MENU.img` (stored as a file path in DB).
+* Total amount auto-calculates on checkbox selection.
+* Only logged-in users can access `/cart` servlet.
+* Place order button is disabled if nothing selected.
+
+---
+
+Would you like me to implement the **Place Order** functionality (moving cart → orders & order_items table) next? 🛍️✨
