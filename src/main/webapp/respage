@@ -151,3 +151,345 @@ $(document).ready(function () {
   // Initial load
   loadRestaurants();
 });
+
+
+Perfect 👌
+Here’s a clean and production-ready implementation that satisfies all your conditions:
+
+✅ Works with your existing login/registration session flow
+
+✅ Protects restaurant.html for logged-in users only
+
+✅ Uses Tailwind + jQuery + AJAX
+
+✅ Returns proper JSON responses
+
+✅ Uses DAO → Service → Servlet layered structure
+
+✅ Includes rating field in restaurant list response
+
+
+
+---
+
+📁 Recommended Folder Structure
+
+BiteBuddy/
+├── src/
+│   ├── com.fooddelivery.model/
+│   │   └── Restaurant.java
+│   ├── com.fooddelivery.dao/
+│   │   └── RestaurantDAO.java
+│   ├── com.fooddelivery.service/
+│   │   └── RestaurantService.java
+│   ├── com.fooddelivery.controller/
+│   │   └── RestaurantServlet.java
+│   └── com.fooddelivery.util/
+│       └── DBConnection.java
+├── WebContent/
+│   ├── restaurant.html
+│   ├── js/
+│   │   └── restaurant.js
+│   └── WEB-INF/
+│       └── web.xml
+├── lib/
+│   └── gson-2.10.1.jar
+
+
+---
+
+🧱 DBConnection.java
+
+package com.fooddelivery.util;
+
+import java.sql.Connection;
+import java.sql.DriverManager;
+
+public class DBConnection {
+    private static final String URL = "jdbc:sqlserver://localhost:1433;databaseName=SQLTraining";
+    private static final String USER = "sa";
+    private static final String PASSWORD = "your_password";
+
+    public static Connection getConnection() {
+        Connection con = null;
+        try {
+            Class.forName("com.microsoft.sqlserver.jdbc.SQLServerDriver");
+            con = DriverManager.getConnection(URL, USER, PASSWORD);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return con;
+    }
+}
+
+
+---
+
+🧭 Restaurant.java (Model)
+
+package com.fooddelivery.model;
+
+public class Restaurant {
+    private int restaurantId;
+    private int userId;
+    private String name;
+    private String address;
+    private String phoneNumber;
+    private String cuisineType;
+    private int deliveryTime;
+    private double rating;
+    private String img; // will store Base64 or path
+
+    public Restaurant(int restaurantId, String name, String address, String phoneNumber, String cuisineType, int deliveryTime, double rating, String img) {
+        this.restaurantId = restaurantId;
+        this.name = name;
+        this.address = address;
+        this.phoneNumber = phoneNumber;
+        this.cuisineType = cuisineType;
+        this.deliveryTime = deliveryTime;
+        this.rating = rating;
+        this.img = img;
+    }
+
+    public int getRestaurantId() { return restaurantId; }
+    public String getName() { return name; }
+    public String getAddress() { return address; }
+    public String getPhoneNumber() { return phoneNumber; }
+    public String getCuisineType() { return cuisineType; }
+    public int getDeliveryTime() { return deliveryTime; }
+    public double getRating() { return rating; }
+    public String getImg() { return img; }
+}
+
+
+---
+
+🧑‍💻 RestaurantDAO.java
+
+package com.fooddelivery.dao;
+
+import com.fooddelivery.model.Restaurant;
+import com.fooddelivery.util.DBConnection;
+import java.sql.*;
+import java.util.ArrayList;
+import java.util.Base64;
+import java.util.List;
+
+public class RestaurantDAO {
+
+    public List<Restaurant> getAllRestaurants(String search) {
+        List<Restaurant> restaurants = new ArrayList<>();
+        String sql = "SELECT restaurant_id, name, address, phone_number, cuisine_type, delivery_time, rating, img " +
+                     "FROM food.M_D_RESTAURANT WHERE is_active = 1 AND is_deleted = 0";
+
+        if (search != null && !search.trim().isEmpty()) {
+            sql += " AND name LIKE ?";
+        }
+
+        try (Connection con = DBConnection.getConnection();
+             PreparedStatement ps = con.prepareStatement(sql)) {
+
+            if (search != null && !search.trim().isEmpty()) {
+                ps.setString(1, "%" + search + "%");
+            }
+
+            ResultSet rs = ps.executeQuery();
+            while (rs.next()) {
+                byte[] imgBytes = rs.getBytes("img");
+                String base64Img = (imgBytes != null) 
+                        ? "data:image/png;base64," + Base64.getEncoder().encodeToString(imgBytes) 
+                        : "https://via.placeholder.com/300x200?text=No+Image";
+
+                restaurants.add(new Restaurant(
+                        rs.getInt("restaurant_id"),
+                        rs.getString("name"),
+                        rs.getString("address"),
+                        rs.getString("phone_number"),
+                        rs.getString("cuisine_type"),
+                        rs.getInt("delivery_time"),
+                        rs.getDouble("rating"),
+                        base64Img
+                ));
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return restaurants;
+    }
+}
+
+
+---
+
+🧠 RestaurantService.java
+
+package com.fooddelivery.service;
+
+import com.fooddelivery.dao.RestaurantDAO;
+import com.fooddelivery.model.Restaurant;
+import java.util.List;
+
+public class RestaurantService {
+
+    private final RestaurantDAO dao = new RestaurantDAO();
+
+    public List<Restaurant> fetchRestaurants(String search) {
+        return dao.getAllRestaurants(search);
+    }
+}
+
+
+---
+
+🌐 RestaurantServlet.java
+
+package com.fooddelivery.controller;
+
+import com.fooddelivery.model.Restaurant;
+import com.fooddelivery.service.RestaurantService;
+import com.google.gson.Gson;
+
+import javax.servlet.*;
+import javax.servlet.annotation.WebServlet;
+import javax.servlet.http.*;
+import java.io.IOException;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+@WebServlet("/api/restaurants")
+public class RestaurantServlet extends HttpServlet {
+
+    private final RestaurantService service = new RestaurantService();
+    private final Gson gson = new Gson();
+
+    protected void doGet(HttpServletRequest request, HttpServletResponse response) throws IOException {
+        response.setContentType("application/json");
+
+        HttpSession session = request.getSession(false);
+        if (session == null || session.getAttribute("user") == null) {
+            Map<String, String> unauthorized = new HashMap<>();
+            unauthorized.put("status", "unauthorized");
+            unauthorized.put("message", "You must login first");
+            response.getWriter().write(gson.toJson(unauthorized));
+            return;
+        }
+
+        String search = request.getParameter("search");
+        List<Restaurant> restaurants = service.fetchRestaurants(search);
+        response.getWriter().write(gson.toJson(restaurants));
+    }
+}
+
+
+---
+
+🧾 web.xml
+
+<web-app xmlns="http://xmlns.jcp.org/xml/ns/javaee" 
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+         xsi:schemaLocation="http://xmlns.jcp.org/xml/ns/javaee 
+         http://xmlns.jcp.org/xml/ns/javaee/web-app_4_0.xsd" 
+         version="4.0">
+
+    <display-name>BiteBuddy</display-name>
+
+    <!-- Restaurant Servlet -->
+    <servlet>
+        <servlet-name>RestaurantServlet</servlet-name>
+        <servlet-class>com.fooddelivery.controller.RestaurantServlet</servlet-class>
+    </servlet>
+
+    <servlet-mapping>
+        <servlet-name>RestaurantServlet</servlet-name>
+        <url-pattern>/api/restaurants</url-pattern>
+    </servlet-mapping>
+
+</web-app>
+
+
+---
+
+🍽️ restaurant.js (Update with Session Check + Rating)
+
+$(document).ready(function () {
+  let allRestaurants = [];
+
+  function loadRestaurants(query = "") {
+    $.ajax({
+      url: "http://localhost:8080/BiteBuddy/api/restaurants",
+      method: "GET",
+      data: { search: query },
+      dataType: "json",
+      success: function (data) {
+        if (data.status === "unauthorized") {
+          alert("Please login to continue.");
+          window.location.href = "login.html";
+          return;
+        }
+        allRestaurants = data;
+        renderRestaurants(data);
+      },
+      error: function () {
+        alert("Failed to load restaurants. Please login again.");
+        window.location.href = "login.html";
+      },
+    });
+  }
+
+  function renderRestaurants(list) {
+    $("#restaurantContainer").empty();
+    if (!list || list.length === 0) {
+      $("#restaurantContainer").html(
+        `<p class="text-center text-gray-400 text-lg col-span-full">No restaurants found.</p>`
+      );
+      return;
+    }
+
+    list.forEach((r) => {
+      $("#restaurantContainer").append(`
+        <a href="menu.html?restaurant_id=${r.restaurantId}">
+          <div class="fade-in bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl p-5 card-hover cursor-pointer">
+            <img src="${r.img}" alt="${r.name}" class="w-full h-48 object-cover rounded-xl mb-4">
+            <h3 class="text-2xl text-orange-500 font-semibold mb-2">${r.name}</h3>
+            <p class="text-gray-300"><strong>ETA:</strong> ${r.deliveryTime} mins</p>
+            <p class="text-gray-300"><strong>Address:</strong> ${r.address}</p>
+            <p class="text-gray-300"><strong>Cuisine:</strong> ${r.cuisineType}</p>
+            <p class="text-gray-300"><strong>Rating:</strong> ⭐ ${r.rating}</p>
+          </div>
+        </a>
+      `);
+    });
+  }
+
+  $("#searchInput").on("keyup", function () {
+    const query = $(this).val().toLowerCase().trim();
+    const filtered = allRestaurants.filter((r) =>
+      r.name.toLowerCase().includes(query)
+    );
+    renderRestaurants(filtered);
+  });
+
+  loadRestaurants();
+});
+
+
+---
+
+✅ What This Gives You
+
+Only logged-in users can access /api/restaurants.
+
+Unauthorized users are redirected to login.html.
+
+Restaurant data (with ratings and images) is fetched dynamically.
+
+Clean MVC (Model → DAO → Service → Servlet).
+
+Easy to extend later with menu/cart/order features.
+
+
+
+---
+
+Would you like me to also give you the logout logic to clear the session when the user clicks the logout button? (This will help redirect back to login page properly.)
