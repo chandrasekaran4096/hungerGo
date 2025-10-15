@@ -1,0 +1,333 @@
+Perfect 👌 — we’ll now upgrade your **Menu Page** to use **Tailwind CSS** entirely (no custom CSS file).
+
+Everything — including the layout, colors, hover effects, search bar, filters, and menu cards — will use Tailwind’s utility classes, so it matches your dark-glass BiteBuddy theme beautifully.
+
+I’ll give you **full front-end and back-end** code, separated cleanly into MVC layers.
+
+---
+
+## ⚙️ Backend (Java MVC)
+
+### `com.tap.model.Menu.java`
+
+```java
+package com.tap.model;
+
+public class Menu {
+    private int menuId;
+    private int restaurantId;
+    private String itemName;
+    private String description;
+    private String category;
+    private double price;
+    private String img;
+
+    public int getMenuId() { return menuId; }
+    public void setMenuId(int menuId) { this.menuId = menuId; }
+
+    public int getRestaurantId() { return restaurantId; }
+    public void setRestaurantId(int restaurantId) { this.restaurantId = restaurantId; }
+
+    public String getItemName() { return itemName; }
+    public void setItemName(String itemName) { this.itemName = itemName; }
+
+    public String getDescription() { return description; }
+    public void setDescription(String description) { this.description = description; }
+
+    public String getCategory() { return category; }
+    public void setCategory(String category) { this.category = category; }
+
+    public double getPrice() { return price; }
+    public void setPrice(double price) { this.price = price; }
+
+    public String getImg() { return img; }
+    public void setImg(String img) { this.img = img; }
+}
+```
+
+---
+
+### `com.tap.dao.MenuDAO.java`
+
+```java
+package com.tap.dao;
+
+import com.tap.model.Menu;
+import com.tap.model.Restaurant;
+import com.tap.utils.DBConnection;
+import java.sql.*;
+import java.util.*;
+
+public class MenuDAO {
+
+    public Restaurant getRestaurantById(int restaurantId) {
+        Restaurant rest = null;
+        try (Connection conn = DBConnection.getConnection()) {
+            String sql = "SELECT name, cuisine_type, rating FROM food.M_S_RESTAURANT WHERE restaurant_id = ? AND is_deleted = 0";
+            PreparedStatement ps = conn.prepareStatement(sql);
+            ps.setInt(1, restaurantId);
+            ResultSet rs = ps.executeQuery();
+            if (rs.next()) {
+                rest = new Restaurant();
+                rest.setRestaurantId(restaurantId);
+                rest.setName(rs.getString("name"));
+                rest.setCuisineType(rs.getString("cuisine_type"));
+                rest.setRating(rs.getDouble("rating"));
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return rest;
+    }
+
+    public List<Menu> getMenuItems(int restaurantId, String search, String category) {
+        List<Menu> list = new ArrayList<>();
+        try (Connection conn = DBConnection.getConnection()) {
+            StringBuilder sql = new StringBuilder("SELECT * FROM food.M_S_MENU WHERE restaurant_id = ? AND is_deleted = 0");
+            if (search != null && !search.isEmpty()) {
+                sql.append(" AND item_name LIKE ?");
+            }
+            if (category != null && !category.isEmpty() && !category.equals("All")) {
+                sql.append(" AND category = ?");
+            }
+
+            PreparedStatement ps = conn.prepareStatement(sql.toString());
+            int idx = 1;
+            ps.setInt(idx++, restaurantId);
+            if (search != null && !search.isEmpty()) ps.setString(idx++, "%" + search + "%");
+            if (category != null && !category.isEmpty() && !category.equals("All")) ps.setString(idx++, category);
+
+            ResultSet rs = ps.executeQuery();
+            while (rs.next()) {
+                Menu m = new Menu();
+                m.setMenuId(rs.getInt("menu_id"));
+                m.setRestaurantId(rs.getInt("restaurant_id"));
+                m.setItemName(rs.getString("item_name"));
+                m.setDescription(rs.getString("description"));
+                m.setCategory(rs.getString("category"));
+                m.setPrice(rs.getDouble("price"));
+                m.setImg(rs.getString("img"));
+                list.add(m);
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return list;
+    }
+}
+```
+
+---
+
+### `com.tap.service.MenuService.java`
+
+```java
+package com.tap.service;
+
+import com.tap.dao.MenuDAO;
+import com.tap.model.Menu;
+import com.tap.model.Restaurant;
+import java.util.*;
+
+public class MenuService {
+    private final MenuDAO dao = new MenuDAO();
+
+    public Map<String, Object> getMenuData(int restaurantId, String search, String category) {
+        Map<String, Object> result = new HashMap<>();
+        Restaurant rest = dao.getRestaurantById(restaurantId);
+        List<Menu> menuList = dao.getMenuItems(restaurantId, search, category);
+        result.put("restaurant", rest);
+        result.put("menu", menuList);
+        return result;
+    }
+}
+```
+
+---
+
+### `com.tap.servlet.MenuServlet.java`
+
+```java
+package com.tap.servlet;
+
+import com.tap.service.MenuService;
+import com.google.gson.Gson;
+import javax.servlet.annotation.WebServlet;
+import javax.servlet.http.*;
+import java.io.IOException;
+import java.util.Map;
+
+@WebServlet("/api/menu")
+public class MenuServlet extends HttpServlet {
+    private final MenuService service = new MenuService();
+    private final Gson gson = new Gson();
+
+    @Override
+    protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        String restaurantIdStr = req.getParameter("restaurant_id");
+        String search = req.getParameter("search");
+        String category = req.getParameter("category");
+
+        resp.setContentType("application/json");
+        if (restaurantIdStr == null) {
+            resp.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+            resp.getWriter().write("{\"error\":\"restaurant_id is required\"}");
+            return;
+        }
+
+        try {
+            int restaurantId = Integer.parseInt(restaurantIdStr);
+            Map<String, Object> data = service.getMenuData(restaurantId, search, category);
+            resp.getWriter().write(gson.toJson(data));
+        } catch (NumberFormatException e) {
+            resp.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+            resp.getWriter().write("{\"error\":\"Invalid restaurant_id\"}");
+        }
+    }
+}
+```
+
+---
+
+## 🎨 Frontend (Tailwind + jQuery)
+
+### `menu.html`
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BiteBuddy Menu</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://code.jquery.com/jquery-3.6.4.min.js"></script>
+</head>
+
+<body class="bg-neutral-950 text-white font-[Poppins]">
+  <!-- Navbar -->
+  <nav class="flex justify-between items-center px-8 py-4 bg-black/60 backdrop-blur-md sticky top-0 z-50">
+    <h1 class="text-2xl font-bold text-orange-500">BiteBuddy</h1>
+    <ul class="flex gap-6 text-lg">
+      <li><a href="restaurants.html" class="hover:text-orange-400">Restaurants</a></li>
+      <li><a href="cart.html" class="hover:text-orange-400">Cart</a></li>
+      <li><a href="profile.html" class="hover:text-orange-400">Profile</a></li>
+    </ul>
+  </nav>
+
+  <main class="px-8 py-10">
+    <!-- Search & Filter -->
+    <div class="flex flex-col md:flex-row items-center justify-center gap-4 mb-8">
+      <input id="searchInput" type="text" placeholder="Search food..." class="w-64 p-2 rounded-lg text-black" />
+      <select id="categorySelect" class="p-2 rounded-lg text-black">
+        <option value="All">All</option>
+        <option value="Veg">Veg</option>
+        <option value="Non-Veg">Non-Veg</option>
+        <option value="Drinks">Drinks</option>
+        <option value="Desserts">Desserts</option>
+      </select>
+      <button id="searchBtn" class="bg-orange-500 px-4 py-2 rounded-lg hover:bg-orange-600 transition">Search</button>
+    </div>
+
+    <!-- Restaurant Info -->
+    <div id="restaurantInfo" class="text-center mb-10"></div>
+
+    <!-- Menu Items -->
+    <div id="menuContainer" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8"></div>
+  </main>
+
+  <footer class="text-center py-4 text-gray-400 bg-black/80">
+    &copy; 2025 BiteBuddy. All rights reserved.
+  </footer>
+
+  <script src="menu.js"></script>
+</body>
+</html>
+```
+
+---
+
+### `menu.js`
+
+```javascript
+$(document).ready(function () {
+  const urlParams = new URLSearchParams(window.location.search);
+  const restaurantId = urlParams.get("restaurant_id");
+
+  function loadMenu() {
+    const search = $("#searchInput").val();
+    const category = $("#categorySelect").val();
+
+    $.ajax({
+      url: `/api/menu?restaurant_id=${restaurantId}&search=${search}&category=${category}`,
+      method: "GET",
+      dataType: "json",
+      success: function (res) {
+        $("#menuContainer").empty();
+        if (res.restaurant) {
+          $("#restaurantInfo").html(`
+            <h2 class="text-4xl font-semibold text-orange-400">${res.restaurant.name}</h2>
+            <p class="text-gray-400 mt-2">${res.restaurant.cuisineType || ""} • ⭐ ${res.restaurant.rating || "-"}</p>
+          `);
+        }
+
+        if (res.menu && res.menu.length) {
+          res.menu.forEach(item => {
+            const card = `
+              <div class="bg-white/10 border border-white/10 rounded-2xl p-4 hover:scale-105 transition transform backdrop-blur-md">
+                <img src="${item.img || '/assets/no-image.png'}" alt="${item.itemName}" class="w-full h-48 object-cover rounded-xl mb-3">
+                <h3 class="text-xl font-bold text-orange-400">${item.itemName}</h3>
+                <p class="text-gray-400 text-sm mb-2">${item.description || ""}</p>
+                <p class="text-orange-300 font-semibold mb-3">₹${item.price}</p>
+                <button class="add-btn bg-orange-500 px-4 py-2 rounded-lg hover:bg-orange-600 transition w-full" data-id="${item.menuId}">
+                  Add to Cart
+                </button>
+              </div>`;
+            $("#menuContainer").append(card);
+          });
+        } else {
+          $("#menuContainer").html("<p class='text-center text-gray-400'>No menu items found.</p>");
+        }
+      },
+      error: function () {
+        $("#menuContainer").html("<p class='text-center text-red-500'>Failed to load menu.</p>");
+      },
+    });
+  }
+
+  $("#searchBtn").on("click", loadMenu);
+  $("#categorySelect").on("change", loadMenu);
+  loadMenu();
+
+  $(document).on("click", ".add-btn", function () {
+    const menuId = $(this).data("id");
+    $.ajax({
+      url: "/api/cart/add",
+      method: "POST",
+      contentType: "application/json",
+      data: JSON.stringify({ menu_id: menuId, quantity: 1 }),
+      success: function (res) {
+        alert("Item added to cart!");
+      },
+      error: function () {
+        alert("Failed to add item.");
+      }
+    });
+  });
+});
+```
+
+---
+
+✅ **Key Features:**
+
+* Full Tailwind styling — no CSS file needed.
+* Responsive grid layout.
+* Dark glass-style cards with hover animations.
+* Search & category filter powered by jQuery.
+* Works with your existing DB structure.
+* “Add to Cart” button ready to integrate with `/api/cart/add`.
+
+---
+
+Would you like me to now create the **Cart Page (Tailwind + jQuery)** — with item images, quantity increment/decrement, checkboxes, and total calculation — that matches this menu design?
