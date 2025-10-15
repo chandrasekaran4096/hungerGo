@@ -1,0 +1,231 @@
+Perfect 😎 — below is a **complete, modern cart page** using **Tailwind CSS + jQuery**, fully matching your **BiteBuddy** theme, including:
+✅ Item images
+✅ Increment/decrement quantity
+✅ Checkboxes to select items
+✅ Dynamic total price update
+✅ “Place Order” button (works only when items are selected)
+
+---
+
+### 🗂️ Folder Structure
+
+You’ll have:
+
+```
+/cart
+ ├── cart.html
+ ├── cart.js
+ └── tailwind.css  (or use CDN)
+```
+
+---
+
+### 🧱 1. **cart.html**
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BiteBuddy - Cart</title>
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+  <script src="cart.js" defer></script>
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-900 text-white font-poppins">
+  
+  <!-- Navbar -->
+  <nav class="flex justify-between items-center px-8 py-4 bg-gray-800 bg-opacity-80 backdrop-blur-md sticky top-0 z-50">
+    <h1 class="text-2xl font-bold text-red-500">BiteBuddy</h1>
+    <ul class="flex gap-6">
+      <li><a href="index.html" class="hover:text-red-500 transition">Home</a></li>
+      <li><a href="about.html" class="hover:text-red-500 transition">About</a></li>
+      <li><a href="cart.html" class="text-red-500 font-semibold">Cart</a></li>
+      <li><a href="orders.html" class="hover:text-red-500 transition">Orders</a></li>
+      <li><a href="login.html" class="hover:text-red-500 transition">Login</a></li>
+    </ul>
+  </nav>
+
+  <!-- Cart Section -->
+  <section class="px-8 py-10">
+    <h2 class="text-3xl font-bold mb-6 text-center text-red-400">Your Cart 🛒</h2>
+
+    <!-- Cart Items Container -->
+    <div id="cartContainer" class="space-y-6">
+      <!-- Items will be loaded here by jQuery -->
+    </div>
+
+    <!-- Summary Section -->
+    <div class="mt-10 bg-gray-800 rounded-2xl p-6 shadow-xl max-w-xl mx-auto text-center">
+      <p class="text-lg mb-2">Selected Items: <span id="selectedCount" class="font-bold">0</span></p>
+      <p class="text-xl font-semibold mb-4">Total: ₹<span id="grandTotal">0</span></p>
+      <button id="placeOrder" class="bg-red-500 hover:bg-red-600 px-6 py-3 rounded-xl text-lg font-semibold transition disabled:opacity-50" disabled>
+        Place Order
+      </button>
+    </div>
+  </section>
+
+  <footer class="bg-gray-800 py-4 text-center text-gray-400 mt-10">
+    &copy; 2025 BiteBuddy. All rights reserved.
+  </footer>
+
+</body>
+</html>
+```
+
+---
+
+### ⚙️ 2. **cart.js**
+
+```javascript
+$(document).ready(function () {
+  const $cartContainer = $("#cartContainer");
+  const $grandTotal = $("#grandTotal");
+  const $selectedCount = $("#selectedCount");
+  const $placeOrder = $("#placeOrder");
+
+  // 🧠 Example data (Replace this with your backend API call)
+  let cartItems = [
+    {
+      id: 1,
+      name: "Chicken Biryani",
+      price: 150,
+      quantity: 2,
+      image_path: "https://images.pexels.com/photos/1624487/pexels-photo-1624487.jpeg"
+    },
+    {
+      id: 2,
+      name: "Paneer Butter Masala",
+      price: 180,
+      quantity: 1,
+      image_path: "https://images.pexels.com/photos/674574/pexels-photo-674574.jpeg"
+    }
+  ];
+
+  // 🧩 Function to render cart items
+  function renderCart() {
+    $cartContainer.empty();
+    cartItems.forEach(item => {
+      const total = item.price * item.quantity;
+      $cartContainer.append(`
+        <div class="bg-gray-800 bg-opacity-70 rounded-2xl p-4 flex flex-col md:flex-row items-center justify-between shadow-md hover:shadow-red-400/30 transition">
+          <div class="flex items-center gap-4">
+            <input type="checkbox" class="select-item w-5 h-5 accent-red-500" data-id="${item.id}">
+            <img src="${item.image_path}" alt="${item.name}" class="w-24 h-24 object-cover rounded-xl shadow-lg">
+            <div>
+              <h3 class="text-xl font-semibold text-red-400">${item.name}</h3>
+              <p>₹${item.price} each</p>
+              <p class="mt-1 text-gray-300">Total: ₹<span class="item-total">${total}</span></p>
+            </div>
+          </div>
+          <div class="flex items-center gap-3 mt-3 md:mt-0">
+            <button class="decrease bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded" data-id="${item.id}">-</button>
+            <span class="quantity font-bold text-lg">${item.quantity}</span>
+            <button class="increase bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded" data-id="${item.id}">+</button>
+            <button class="remove bg-red-600 hover:bg-red-700 px-3 py-1 rounded text-sm ml-4" data-id="${item.id}">Remove</button>
+          </div>
+        </div>
+      `);
+    });
+  }
+
+  // 🎯 Calculate total for selected items
+  function updateTotals() {
+    let total = 0, count = 0;
+    $(".select-item:checked").each(function () {
+      const id = $(this).data("id");
+      const item = cartItems.find(i => i.id === id);
+      total += item.price * item.quantity;
+      count++;
+    });
+    $grandTotal.text(total);
+    $selectedCount.text(count);
+    $placeOrder.prop("disabled", count === 0);
+  }
+
+  // Initial render
+  renderCart();
+
+  // Event: Quantity increase
+  $cartContainer.on("click", ".increase", function () {
+    const id = $(this).data("id");
+    const item = cartItems.find(i => i.id === id);
+    item.quantity++;
+    renderCart();
+    updateTotals();
+  });
+
+  // Event: Quantity decrease
+  $cartContainer.on("click", ".decrease", function () {
+    const id = $(this).data("id");
+    const item = cartItems.find(i => i.id === id);
+    if (item.quantity > 1) item.quantity--;
+    renderCart();
+    updateTotals();
+  });
+
+  // Event: Remove item
+  $cartContainer.on("click", ".remove", function () {
+    const id = $(this).data("id");
+    cartItems = cartItems.filter(i => i.id !== id);
+    renderCart();
+    updateTotals();
+  });
+
+  // Event: Checkbox toggle
+  $cartContainer.on("change", ".select-item", updateTotals);
+
+  // Event: Place Order
+  $placeOrder.click(function () {
+    const selectedIds = $(".select-item:checked").map(function () {
+      return $(this).data("id");
+    }).get();
+
+    alert("Placing order for items: " + selectedIds.join(", "));
+    // 🧠 Here, send AJAX POST to your backend /api/order/place
+  });
+});
+```
+
+---
+
+### 🚀 3. **Integration with Backend**
+
+Replace the sample data in `cartItems` with a real API call:
+
+```javascript
+$.get("/api/cart?userId=123", function(data) {
+  cartItems = data;
+  renderCart();
+});
+```
+
+Your backend should return JSON like:
+
+```json
+[
+  {
+    "id": 1,
+    "name": "Chicken Biryani",
+    "price": 150,
+    "quantity": 2,
+    "image_path": "/uploads/biryani.jpg"
+  }
+]
+```
+
+---
+
+### 🧠 Features Recap
+
+✅ Smooth UI (Tailwind + glassmorphism)
+✅ Quantity control (instant updates)
+✅ Select items for order
+✅ Dynamic total price
+✅ Place Order button active only when items selected
+✅ Responsive + animated
+
+---
+
+Would you like me to add **real backend integration (servlet + MySQL query structure)** next, so this cart can load and update data dynamically from your database?
