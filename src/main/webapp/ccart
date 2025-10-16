@@ -1,0 +1,354 @@
+Perfect 💪 — this is a **core part of your BiteBuddy food delivery system**, so let’s design it properly and completely.
+
+We’ll build a **full Cart module** (frontend + backend) in a clean architecture style — with **Tailwind + jQuery** on the frontend, and **JSP + Servlet + DAO + Service + Model + MySQL** on the backend.
+
+---
+
+## 🧩 **Module Overview — Cart Page**
+
+| Layer    | Purpose                                            |
+| -------- | -------------------------------------------------- |
+| Model    | Java POJO for Cart, Menu, and User                 |
+| DAO      | Database interaction (CRUD for cart)               |
+| Service  | Business logic (fetch cart, update quantity, etc.) |
+| Servlet  | API endpoint for AJAX requests                     |
+| JSP/HTML | Cart UI (Tailwind styled, jQuery driven)           |
+| jQuery   | Handles dynamic updates, totals, AJAX calls        |
+
+---
+
+## 🧠 **Functional Requirements**
+
+✅ User must be logged in to access the cart
+✅ Cart should only show items from a single restaurant
+✅ Each item shows:
+
+* Image
+* Item Name
+* Price
+* Quantity (with ➕ ➖ buttons)
+* Total Price
+* Checkbox (to place order)
+  ✅ “Place Order” button for selected items
+  ✅ Automatically updates total when quantity changes
+  ✅ Allows deleting an item
+
+---
+
+## 🗄️ 1️⃣ Model Layer — `Cart.java`
+
+```java
+package com.tap.model;
+
+public class Cart {
+    private int cartId;
+    private int userId;
+    private int menuId;
+    private String itemName;
+    private double price;
+    private int quantity;
+    private String imagePath;
+    private int restaurantId;
+
+    // Getters and Setters
+    public int getCartId() { return cartId; }
+    public void setCartId(int cartId) { this.cartId = cartId; }
+
+    public int getUserId() { return userId; }
+    public void setUserId(int userId) { this.userId = userId; }
+
+    public int getMenuId() { return menuId; }
+    public void setMenuId(int menuId) { this.menuId = menuId; }
+
+    public String getItemName() { return itemName; }
+    public void setItemName(String itemName) { this.itemName = itemName; }
+
+    public double getPrice() { return price; }
+    public void setPrice(double price) { this.price = price; }
+
+    public int getQuantity() { return quantity; }
+    public void setQuantity(int quantity) { this.quantity = quantity; }
+
+    public String getImagePath() { return imagePath; }
+    public void setImagePath(String imagePath) { this.imagePath = imagePath; }
+
+    public int getRestaurantId() { return restaurantId; }
+    public void setRestaurantId(int restaurantId) { this.restaurantId = restaurantId; }
+}
+```
+
+---
+
+## 💾 2️⃣ DAO Layer — `CartDAO.java`
+
+```java
+package com.tap.dao;
+
+import java.sql.*;
+import java.util.*;
+import com.tap.model.Cart;
+import com.tap.utils.DBConnection;
+
+public class CartDAO {
+
+    public List<Cart> getUserCart(int userId) {
+        List<Cart> list = new ArrayList<>();
+        String sql = """
+            SELECT c.cart_id, c.menu_id, c.userid, c.quantity, m.item_name, m.price, m.img, m.restaurant_id
+            FROM food.M_S_CART c
+            JOIN food.M_S_MENU m ON c.menu_id = m.menu_id
+            WHERE c.userid=? AND c.is_deleted=0
+        """;
+
+        try (Connection con = DBConnection.getConnection();
+             PreparedStatement ps = con.prepareStatement(sql)) {
+
+            ps.setInt(1, userId);
+            ResultSet rs = ps.executeQuery();
+            while (rs.next()) {
+                Cart cart = new Cart();
+                cart.setCartId(rs.getInt("cart_id"));
+                cart.setUserId(rs.getInt("userid"));
+                cart.setMenuId(rs.getInt("menu_id"));
+                cart.setItemName(rs.getString("item_name"));
+                cart.setPrice(rs.getDouble("price"));
+                cart.setQuantity(rs.getInt("quantity"));
+                cart.setImagePath(rs.getString("img"));
+                cart.setRestaurantId(rs.getInt("restaurant_id"));
+                list.add(cart);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return list;
+    }
+
+    public void updateQuantity(int cartId, int quantity) {
+        String sql = "UPDATE food.M_S_CART SET quantity=?, updated_at=GETDATE() WHERE cart_id=?";
+        try (Connection con = DBConnection.getConnection();
+             PreparedStatement ps = con.prepareStatement(sql)) {
+            ps.setInt(1, quantity);
+            ps.setInt(2, cartId);
+            ps.executeUpdate();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void deleteCartItem(int cartId) {
+        String sql = "UPDATE food.M_S_CART SET is_deleted=1 WHERE cart_id=?";
+        try (Connection con = DBConnection.getConnection();
+             PreparedStatement ps = con.prepareStatement(sql)) {
+            ps.setInt(1, cartId);
+            ps.executeUpdate();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+}
+```
+
+---
+
+## 🧰 3️⃣ Service Layer — `CartService.java`
+
+```java
+package com.tap.service;
+
+import java.util.List;
+import com.tap.dao.CartDAO;
+import com.tap.model.Cart;
+
+public class CartService {
+    private CartDAO dao = new CartDAO();
+
+    public List<Cart> getCartByUser(int userId) {
+        return dao.getUserCart(userId);
+    }
+
+    public void updateQuantity(int cartId, int quantity) {
+        dao.updateQuantity(cartId, quantity);
+    }
+
+    public void deleteItem(int cartId) {
+        dao.deleteCartItem(cartId);
+    }
+}
+```
+
+---
+
+## 🌐 4️⃣ Servlet — `CartServlet.java`
+
+```java
+package com.tap.controller;
+
+import com.tap.service.CartService;
+import com.tap.model.Cart;
+import com.google.gson.Gson;
+import jakarta.servlet.*;
+import jakarta.servlet.annotation.WebServlet;
+import jakarta.servlet.http.*;
+import java.io.IOException;
+import java.util.List;
+
+@WebServlet("/CartServlet")
+public class CartServlet extends HttpServlet {
+    private CartService service = new CartService();
+
+    protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        HttpSession session = req.getSession(false);
+        if (session == null || session.getAttribute("userId") == null) {
+            resp.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            return;
+        }
+        int userId = (int) session.getAttribute("userId");
+        List<Cart> cartList = service.getCartByUser(userId);
+
+        resp.setContentType("application/json");
+        resp.getWriter().write(new Gson().toJson(cartList));
+    }
+
+    protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        int cartId = Integer.parseInt(req.getParameter("cartId"));
+        int quantity = Integer.parseInt(req.getParameter("quantity"));
+        service.updateQuantity(cartId, quantity);
+        resp.setStatus(HttpServletResponse.SC_OK);
+    }
+
+    protected void doDelete(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        int cartId = Integer.parseInt(req.getParameter("cartId"));
+        service.deleteItem(cartId);
+        resp.setStatus(HttpServletResponse.SC_OK);
+    }
+}
+```
+
+---
+
+## 🎨 5️⃣ Frontend — `cart.html` (Tailwind + jQuery)
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>BiteBuddy Cart</title>
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <script src="cart.js"></script>
+  <script>
+    const contextPath = '/BiteBuddy';
+  </script>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-900 text-white font-poppins">
+  <nav class="flex justify-between items-center bg-black bg-opacity-70 p-4 backdrop-blur-md">
+    <h1 class="text-2xl font-bold text-orange-500">BiteBuddy</h1>
+    <ul class="flex gap-5">
+      <li><a href="index.jsp" class="hover:text-orange-400">Home</a></li>
+      <li><a href="menu.jsp" class="hover:text-orange-400">Menu</a></li>
+      <li><a href="#" class="text-orange-400 font-semibold">Cart</a></li>
+    </ul>
+  </nav>
+
+  <section id="cartSection" class="p-8 grid gap-6"></section>
+
+  <div class="text-center mt-8">
+    <button id="placeOrderBtn" class="bg-orange-500 hover:bg-orange-600 px-6 py-3 rounded-lg text-lg font-semibold">Place Order</button>
+  </div>
+</body>
+</html>
+```
+
+---
+
+## ⚙️ 6️⃣ jQuery Logic — `cart.js`
+
+```js
+$(document).ready(function () {
+  loadCart();
+
+  function loadCart() {
+    $.ajax({
+      url: `${contextPath}/CartServlet`,
+      method: "GET",
+      dataType: "json",
+      success: function (data) {
+        renderCart(data);
+      },
+      error: function (xhr) {
+        if (xhr.status === 401) window.location.href = "login.html";
+      }
+    });
+  }
+
+  function renderCart(items) {
+    $("#cartSection").empty();
+    if (items.length === 0) {
+      $("#cartSection").html("<p class='text-center text-gray-400'>Your cart is empty!</p>");
+      return;
+    }
+
+    items.forEach(item => {
+      const total = (item.price * item.quantity).toFixed(2);
+      const card = `
+        <div class="flex bg-gray-800 rounded-xl shadow-lg p-4 items-center justify-between">
+          <div class="flex items-center gap-4">
+            <input type="checkbox" class="itemCheckbox w-5 h-5" data-id="${item.cartId}">
+            <img src="${item.imagePath}" class="w-24 h-24 rounded-lg object-cover" alt="${item.itemName}">
+            <div>
+              <h3 class="text-xl font-semibold text-orange-400">${item.itemName}</h3>
+              <p>₹${item.price}</p>
+              <div class="flex items-center gap-2 mt-2">
+                <button class="decrease bg-gray-700 px-2 rounded" data-id="${item.cartId}">-</button>
+                <span id="qty-${item.cartId}">${item.quantity}</span>
+                <button class="increase bg-gray-700 px-2 rounded" data-id="${item.cartId}">+</button>
+              </div>
+            </div>
+          </div>
+          <div>
+            <p class="text-lg font-semibold">Total: ₹<span id="total-${item.cartId}">${total}</span></p>
+          </div>
+        </div>`;
+      $("#cartSection").append(card);
+    });
+  }
+
+  $(document).on("click", ".increase, .decrease", function () {
+    const id = $(this).data("id");
+    const isIncrease = $(this).hasClass("increase");
+    let qty = parseInt($(`#qty-${id}`).text());
+    qty = isIncrease ? qty + 1 : Math.max(1, qty - 1);
+    $(`#qty-${id}`).text(qty);
+
+    $.post(`${contextPath}/CartServlet`, { cartId: id, quantity: qty });
+    const price = parseFloat($(`#total-${id}`).text()) / qty;
+    $(`#total-${id}`).text((price * qty).toFixed(2));
+  });
+
+  $("#placeOrderBtn").click(function () {
+    const selected = $(".itemCheckbox:checked").map(function () {
+      return $(this).data("id");
+    }).get();
+
+    if (selected.length === 0) {
+      alert("Please select at least one item to place an order!");
+      return;
+    }
+    alert("Order placed for items: " + selected.join(", "));
+  });
+});
+```
+
+---
+
+## 🧱 **7️⃣ Database**
+
+Your existing table `food.M_S_CART` already supports all these features. Just ensure:
+
+* `userid` is stored in session on login
+* Each cart item links to a `menu_id` (and hence to a restaurant)
+
+---
+
+Would you like me to extend this with the **“Place Order” servlet + DAO + table insert logic** next (so it actually creates a record in `M_S_ORDERS` and `M_S_ORDER_ITEM` when clicking the “Place Order” button)?
