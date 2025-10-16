@@ -1,0 +1,197 @@
+message from cart servlet
+null
+Oct 16, 2025 8:27:53 PM org.apache.catalina.core.StandardWrapperValve invoke
+SEVERE: Servlet.service() for servlet [CartApiServlet] in context with path [/BiteBudddy] threw exception
+com.google.gson.JsonSyntaxException: com.google.gson.stream.MalformedJsonException: Use JsonReader.setLenient(true) to accept malformed JSON at line 1 column 28 path $
+	at com.google.gson.JsonParser.parseReader(JsonParser.java:76)
+	at com.google.gson.JsonParser.parseString(JsonParser.java:51)
+	at com.bite.controller.CartApiServlet.doPost(CartApiServlet.java:66)
+	at javax.servlet.http.HttpServlet.service(HttpServlet.java:555)
+	at javax.servlet.http.HttpServlet.service(HttpServlet.java:623)
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:199)
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:144)
+	at org.apache.tomcat.websocket.server.WsFilter.doFilter(WsFilter.java:51)
+	at org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:168)
+	at org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:144)
+	at org.apache.catalina.core.StandardWrapperValve.invoke(StandardWrapperValve.java:168)
+	at org.apache.catalina.core.StandardContextValve.invoke(StandardContextValve.java:90)
+	at org.apache.catalina.authenticator.AuthenticatorBase.invoke(AuthenticatorBase.java:482)
+	at org.apache.catalina.core.StandardHostValve.invoke(StandardHostValve.java:130)
+	at org.apache.catalina.valves.ErrorReportValve.invoke(ErrorReportValve.java:93)
+	at org.apache.catalina.valves.AbstractAccessLogValve.invoke(AbstractAccessLogValve.java:656)
+	at org.apache.catalina.core.StandardEngineValve.invoke(StandardEngineValve.java:74)
+	at org.apache.catalina.connector.CoyoteAdapter.service(CoyoteAdapter.java:346)
+	at org.apache.coyote.http11.Http11Processor.service(Http11Processor.java:397)
+	at org.apache.coyote.AbstractProcessorLight.process(AbstractProcessorLight.java:63)
+	at org.apache.coyote.AbstractProtocol$ConnectionHandler.process(AbstractProtocol.java:935)
+	at org.apache.tomcat.util.net.NioEndpoint$SocketProcessor.doRun(NioEndpoint.java:1833)
+	at org.apache.tomcat.util.net.SocketProcessorBase.run(SocketProcessorBase.java:52)
+	at org.apache.tomcat.util.threads.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:975)
+	at org.apache.tomcat.util.threads.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:493)
+	at org.apache.tomcat.util.threads.TaskThread$WrappingRunnable.run(TaskThread.java:63)
+	at java.base/java.lang.Thread.run(Thread.java:832)
+Caused by: com.google.gson.stream.MalformedJsonException: Use JsonReader.setLenient(true) to accept malformed JSON at line 1 column 28 path $
+	at com.google.gson.stream.JsonReader.syntaxError(JsonReader.java:1659)
+	at com.google.gson.stream.JsonReader.checkLenient(JsonReader.java:1465)
+	at com.google.gson.stream.JsonReader.doPeek(JsonReader.java:551)
+	at com.google.gson.stream.JsonReader.peek(JsonReader.java:433)
+	at com.google.gson.JsonParser.parseReader(JsonParser.java:71)
+
+
+
+
+
+    $.ajax({
+    url: "http://localhost:8080/BiteBudddy/CartApiServlet",
+    method: "POST",
+    contentType: "application/json",
+    data: JSON.stringify({ menu_id: menuId, quantity: 1 })+ "&action=add",
+    success: function(res) {
+      if (res.conflict) {
+        if (confirm(res.message || "Replace cart with items from this restaurant?")) {
+          // retry with replace=true
+          $.ajax({
+            url: `${CONTEXT}/api/cart/add`,
+            method: "POST",
+            contentType: "application/json",
+            data: JSON.stringify({ menu_id: menuId, quantity: 1, replace: true }),
+            success: function(r2) {
+              alert(r2.success ? "Added to cart (replaced)." : "Failed to add.");
+            }
+          });
+        }
+      } else {
+        alert(res.success ? "Added to cart" : res.message || "Failed to add");
+      }
+    }
+  });
+
+
+
+  package com.bite.controller;
+
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import javax.servlet.http.HttpServlet;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+import javax.servlet.http.HttpSession;
+
+import com.bite.model.CartItem;
+import com.bite.model.User;
+import com.bite.service.CartService;
+import com.google.gson.Gson;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+
+
+public class CartApiServlet extends HttpServlet {
+    private final CartService service = new CartService();
+    private final Gson gson = new Gson();
+
+    // GET /api/cart
+    @Override
+    protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        HttpSession session = req.getSession(false);
+        resp.setContentType("application/json");
+        if(session == null || session.getAttribute("user") == null) {
+            resp.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            resp.setContentType("application/json");
+            resp.getWriter().write("{\"error\":\"Not authenticated\"}");
+            return;
+        }
+        User user = (User) session.getAttribute("user");
+        int userId = user.getUserId();
+        List<CartItem> list = service.getCartForUser(userId);
+        resp.getWriter().write(gson.toJson(list));
+    }
+
+    // POST for add/update/delete distinguished by path
+    @Override
+    protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+    	System.out.println("message from cart servlet");
+        String path = req.getParameter("action"); // /add or /update or /delete
+        System.out.println(path);
+        //if (path == null) path = "/";
+
+        HttpSession session = req.getSession(false);
+        resp.setContentType("application/json");
+        if(session == null || session.getAttribute("user") == null) {
+            resp.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            resp.setContentType("application/json");
+            resp.getWriter().write("{\"error\":\"Not authenticated\"}");
+            return;
+        }
+        User user = (User) session.getAttribute("user");
+        int userId =user.getUserId();
+
+        BufferedReader reader = req.getReader();
+        StringBuilder sb = new StringBuilder();
+        String line;
+        while ((line = reader.readLine()) != null) sb.append(line);
+        JsonObject body = sb.length() > 0 ? JsonParser.parseString(sb.toString()).getAsJsonObject() : new JsonObject();
+
+        Map<String,Object> out = new HashMap<>();
+
+        try {
+            switch (path) {
+                case "add":
+                    int menuId = body.get("menu_id").getAsInt();
+                    int qty = body.has("quantity") ? body.get("quantity").getAsInt() : 1;
+                    boolean replace = body.has("replace") && body.get("replace").getAsBoolean();
+
+                    int cartRestId = service.getCartRestaurantId(userId);
+                    int menuRestId = service.getRestaurantIdByMenu(menuId);
+
+                    if (cartRestId != -1 && cartRestId != menuRestId && !replace) {
+                        // conflict
+                        out.put("success", false);
+                        out.put("conflict", true);
+                        out.put("message", "Your cart has items from another restaurant. Replace?");
+                        resp.getWriter().write(gson.toJson(out));
+                        return;
+                    }
+
+                    if (cartRestId != -1 && cartRestId != menuRestId && replace) {
+                        service.clearCart(userId);
+                    }
+
+                    boolean added = service.addOrIncrement(userId, menuId, qty);
+                    out.put("success", added);
+                    out.put("message", added ? "Added to cart" : "Failed to add");
+                    resp.getWriter().write(gson.toJson(out));
+                    break;
+
+                case "/update":
+                    int cartId = body.get("cart_id").getAsInt();
+                    int newQty = body.get("quantity").getAsInt();
+                    boolean upd = service.updateQuantity(cartId, newQty);
+                    // fetch price to compute itemTotal (best-effort)
+                    // Need to fetch menuId for cartId -> (for simplicity reload cart on frontend)
+                    out.put("success", upd);
+                    resp.getWriter().write(gson.toJson(out));
+                    break;
+
+                case "/delete":
+                    int cartIdDel = body.get("cart_id").getAsInt();
+                    boolean deleted = service.deleteCartItem(cartIdDel);
+                    out.put("success", deleted);
+                    resp.getWriter().write(gson.toJson(out));
+                    break;
+
+                default:
+                	System.out.println("cool");
+                    resp.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+                    resp.getWriter().write("{\"success\":false, \"message\":\"Bad endpoint\"}");
+            }
+        } catch (Exception ex) {
+            ex.printStackTrace();
+            resp.setStatus(500);
+            resp.getWriter().write("{\"success\":false, \"message\":\"Server error\"}");
+        }
+    }
+}
