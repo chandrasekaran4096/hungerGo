@@ -1,0 +1,960 @@
+Great — below is a **complete, working Cart module** (frontend + backend) that matches your BiteBuddy theme and requirements:
+
+* Tailwind + jQuery frontend (single `cart.html` + `cart.js`) — no JSP required.
+* Full backend in Java (Servlets + Service + DAO + Model + DB util) using your `food` schema (SQL Server).
+* Features:
+
+  * Load cart for logged-in user (session `userid` required).
+  * Increment / decrement quantity (AJAX).
+  * Remove item.
+  * Checkbox per item to select for order.
+  * Grand total and selected count auto-update.
+  * Place order for selected items (creates `M_S_ORDERS` and `M_S_ORDER_ITEM` records).
+  * Enforces **single-restaurant** cart: if user adds an item from a different restaurant, backend returns `conflict:true` and frontend prompts "Replace cart?" — if confirmed, frontend re-calls with `replace=true` to clear previous cart and add new item.
+  * All responses as JSON; robust validation & prepared statements.
+
+---
+
+> **Assumption:** Your login sets `session.setAttribute("userid", <int>)`. If your session key differs, change `userid` usage in servlets accordingly. Update DB credentials in `DBConnection`.
+
+---
+
+## Frontend
+
+Place `cart.html` under your static web folder and `cart.js` in `js/`.
+
+### `cart.html`
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>BiteBuddy - Cart</title>
+
+  <!-- Tailwind CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- jQuery -->
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+
+  <style>
+    /* small override for image sizes */
+    .cart-img { width: 96px; height: 96px; object-fit: cover; border-radius: 8px; }
+  </style>
+</head>
+<body class="bg-neutral-950 text-white font-[Poppins]">
+
+  <nav class="flex justify-between items-center px-8 py-4 bg-black/60 backdrop-blur-md sticky top-0 z-50">
+    <h1 class="text-2xl font-bold text-orange-500">BiteBuddy</h1>
+    <ul class="flex gap-6">
+      <li><a href="/menu/menu.html" class="hover:text-orange-400">Menu</a></li>
+      <li><a href="/restaurants.html" class="hover:text-orange-400">Restaurants</a></li>
+      <li><a href="/profile/profile.html" class="hover:text-orange-400">Profile</a></li>
+      <li><a href="/logout" class="hover:text-orange-400">Logout</a></li>
+    </ul>
+  </nav>
+
+  <main class="px-6 py-10 max-w-6xl mx-auto">
+    <h2 class="text-3xl font-bold mb-6 text-center text-orange-300">Your Cart 🛒</h2>
+
+    <div id="cartContainer" class="space-y-6"></div>
+
+    <div class="mt-10 bg-gray-800 rounded-2xl p-6 shadow-xl max-w-xl mx-auto text-center">
+      <p class="text-lg mb-2">Selected Items: <span id="selectedCount" class="font-bold">0</span></p>
+      <p class="text-xl font-semibold mb-4">Total: ₹<span id="grandTotal">0.00</span></p>
+      <button id="placeOrder" class="bg-orange-500 hover:bg-orange-600 px-6 py-3 rounded-xl text-lg font-semibold transition disabled:opacity-50" disabled>
+        Place Order
+      </button>
+    </div>
+  </main>
+
+  <footer class="bg-black/60 text-center py-4 text-gray-400 mt-10">
+    &copy; 2025 BiteBuddy. All rights reserved.
+  </footer>
+
+  <!-- cart.js -->
+  <script src="/js/cart.js"></script>
+</body>
+</html>
+```
+
+---
+
+### `js/cart.js`
+
+```javascript
+// cart.js
+// Compute context path dynamically (works when running under /BiteBuddy or root)
+function getContextPath() {
+  const parts = window.location.pathname.split('/');
+  return parts.length > 1 && parts[1] ? '/' + parts[1] : '';
+}
+const CONTEXT = getContextPath();
+
+$(document).ready(function () {
+  const $cartContainer = $("#cartContainer");
+  const $grandTotal = $("#grandTotal");
+  const $selectedCount = $("#selectedCount");
+  const $placeOrder = $("#placeOrder");
+
+  // Load cart items from backend
+  function loadCart() {
+    $.ajax({
+      url: `${CONTEXT}/api/cart`,
+      method: "GET",
+      dataType: "json",
+      success: function (data) {
+        renderCart(data);
+        updateTotals();
+      },
+      error: function (xhr) {
+        if (xhr.status === 401) {
+          alert("Please login to view your cart.");
+          window.location.href = "/login.html";
+        } else {
+          $cartContainer.html(`<p class="text-center text-red-400">Failed to load cart.</p>`);
+        }
+      }
+    });
+  }
+
+  // Render cart items list
+  function renderCart(items) {
+    $cartContainer.empty();
+    if (!items || items.length === 0) {
+      $cartContainer.html(`<p class="text-center text-gray-400">Your cart is empty.</p>`);
+      return;
+    }
+
+    // Ensure items all from same restaurant (backend ensures)
+    items.forEach(item => {
+      const itemTotal = (item.price * item.quantity).toFixed(2);
+      const card = $(`
+        <div class="bg-white/5 border border-white/6 rounded-2xl p-4 flex flex-col md:flex-row items-center justify-between gap-4">
+          <div class="flex items-center gap-4 w-full md:w-3/4">
+            <input type="checkbox" class="select-item w-5 h-5 accent-orange-500" data-id="${item.cartId}">
+            <img src="${item.imagePath || '/assets/no-image.png'}" alt="${escapeHtml(item.itemName)}" class="cart-img shadow-lg">
+            <div class="flex-1">
+              <h3 class="text-lg font-semibold text-orange-300">${escapeHtml(item.itemName)}</h3>
+              <p class="text-sm text-gray-300">₹${item.price.toFixed(2)} each</p>
+              <p class="text-sm text-gray-400 mt-1">Restaurant ID: ${item.restaurantId}</p>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-4 w-full md:w-auto justify-between md:justify-end">
+            <div class="flex items-center gap-2 bg-white/3 rounded-lg px-3 py-1">
+              <button class="decrease px-3 py-1 rounded bg-white/6 hover:bg-white/10" data-id="${item.cartId}">-</button>
+              <span class="quantity font-semibold" id="qty-${item.cartId}">${item.quantity}</span>
+              <button class="increase px-3 py-1 rounded bg-white/6 hover:bg-white/10" data-id="${item.cartId}">+</button>
+            </div>
+            <div class="text-right">
+              <p class="text-sm text-gray-300">Total</p>
+              <p class="text-lg font-bold">₹<span id="total-${item.cartId}">${itemTotal}</span></p>
+              <button class="remove mt-2 text-sm text-red-400 hover:text-red-500" data-id="${item.cartId}">Remove</button>
+            </div>
+          </div>
+        </div>
+      `);
+      $cartContainer.append(card);
+    });
+  }
+
+  // Escape HTML to avoid XSS when rendering text from backend
+  function escapeHtml(text) {
+    if (!text) return '';
+    return text.replace(/[&<>"'`=\/]/g, function (s) {
+      return ({
+        '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','/':'&#x2F;','`':'&#x60;','=':'&#x3D;'
+      })[s];
+    });
+  }
+
+  // Update totals (for checked items)
+  function updateTotals() {
+    let total = 0;
+    let count = 0;
+    $(".select-item:checked").each(function () {
+      const id = $(this).data("id");
+      const qty = parseInt($(`#qty-${id}`).text(), 10);
+      const priceText = $(`#total-${id}`).text();
+      // We stored total per item; compute price as total/qty to avoid rounding issues
+      const price = parseFloat(priceText) / (qty || 1);
+      total += price * qty;
+      count++;
+    });
+    $grandTotal.text(total.toFixed(2));
+    $selectedCount.text(count);
+    $placeOrder.prop("disabled", count === 0);
+  }
+
+  // Increase quantity
+  $cartContainer.on("click", ".increase", function () {
+    const cartId = $(this).data("id");
+    const $qtySpan = $(`#qty-${cartId}`);
+    let qty = parseInt($qtySpan.text(), 10);
+    qty++;
+    updateQuantityAjax(cartId, qty);
+  });
+
+  // Decrease quantity
+  $cartContainer.on("click", ".decrease", function () {
+    const cartId = $(this).data("id");
+    const $qtySpan = $(`#qty-${cartId}`);
+    let qty = parseInt($qtySpan.text(), 10);
+    if (qty > 1) {
+      qty--;
+      updateQuantityAjax(cartId, qty);
+    }
+  });
+
+  // Remove item
+  $cartContainer.on("click", ".remove", function () {
+    const cartId = $(this).data("id");
+    if (!confirm("Remove this item from cart?")) return;
+    $.ajax({
+      url: `${CONTEXT}/api/cart/delete`,
+      method: "POST",
+      contentType: "application/json",
+      data: JSON.stringify({ cart_id: cartId }),
+      success: function (res) {
+        if (res.success) {
+          loadCart();
+        } else {
+          alert(res.message || "Failed to remove item.");
+        }
+      },
+      error: function () {
+        alert("Error while removing item.");
+      }
+    });
+  });
+
+  // Checkbox change
+  $cartContainer.on("change", ".select-item", updateTotals);
+
+  // Update quantity AJAX
+  function updateQuantityAjax(cartId, qty) {
+    $.ajax({
+      url: `${CONTEXT}/api/cart/update`,
+      method: "POST",
+      contentType: "application/json",
+      data: JSON.stringify({ cart_id: cartId, quantity: qty }),
+      success: function (res) {
+        if (res.success) {
+          // update UI
+          $(`#qty-${cartId}`).text(qty);
+          // recalc and set item total from returned price if provided else compute
+          if (res.itemTotal !== undefined) {
+            $(`#total-${cartId}`).text(res.itemTotal.toFixed(2));
+          } else {
+            // fallback: find price from DOM text and compute (less ideal)
+            // we'll just reload cart to ensure consistency
+            loadCart();
+          }
+          updateTotals();
+        } else {
+          alert(res.message || "Failed to update quantity.");
+          loadCart();
+        }
+      },
+      error: function () {
+        alert("Error updating quantity.");
+      }
+    });
+  }
+
+  // Place order
+  $placeOrder.click(function () {
+    const selectedCartIds = $(".select-item:checked").map(function () {
+      return $(this).data("id");
+    }).get();
+
+    if (selectedCartIds.length === 0) {
+      alert("Please select items to place an order.");
+      return;
+    }
+
+    // Optional: collect payment mode / address in modal — for simplicity we use 'COD'
+    const payload = { cart_ids: selectedCartIds, payment_mode: "COD" };
+
+    $.ajax({
+      url: `${CONTEXT}/api/order/place`,
+      method: "POST",
+      contentType: "application/json",
+      data: JSON.stringify(payload),
+      success: function (res) {
+        if (res.success) {
+          alert("Order placed successfully! Order ID: " + res.order_id);
+          loadCart();
+        } else {
+          alert(res.message || "Failed to place order.");
+        }
+      },
+      error: function (xhr) {
+        if (xhr.status === 401) {
+          alert("Please login to place an order.");
+          window.location.href = "/login.html";
+        } else {
+          alert("Error placing order.");
+        }
+      }
+    });
+  });
+
+  // initial load
+  loadCart();
+});
+```
+
+---
+
+## Backend (Java)
+
+Place Java files under your package structure (example `com.tap.*`). Use `Gson` and the Microsoft JDBC driver. Update DB credentials in `DBConnection`.
+
+### Dependencies (Maven)
+
+Add to `pom.xml`:
+
+```xml
+<dependency>
+  <groupId>com.microsoft.sqlserver</groupId>
+  <artifactId>mssql-jdbc</artifactId>
+  <version>10.2.0.jre11</version>
+</dependency>
+<dependency>
+  <groupId>com.google.code.gson</groupId>
+  <artifactId>gson</artifactId>
+  <version>2.10.1</version>
+</dependency>
+```
+
+---
+
+### `DBConnection.java`
+
+```java
+package com.tap.utils;
+
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.SQLException;
+
+public class DBConnection {
+    private static final String URL = "jdbc:sqlserver://localhost:1433;databaseName=SQLTraining;encrypt=false;";
+    private static final String USER = "db_username";
+    private static final String PASS = "db_password";
+
+    static {
+        try {
+            Class.forName("com.microsoft.sqlserver.jdbc.SQLServerDriver");
+        } catch (ClassNotFoundException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public static Connection getConnection() throws SQLException {
+        return DriverManager.getConnection(URL, USER, PASS);
+    }
+}
+```
+
+---
+
+### `model/CartItem.java`
+
+```java
+package com.tap.model;
+
+public class CartItem {
+    private int cartId;
+    private int userId;
+    private int menuId;
+    private String itemName;
+    private double price;
+    private int quantity;
+    private String imagePath;
+    private int restaurantId;
+
+    // getters & setters
+    public int getCartId() { return cartId; }
+    public void setCartId(int cartId) { this.cartId = cartId; }
+    public int getUserId() { return userId; }
+    public void setUserId(int userId) { this.userId = userId; }
+    public int getMenuId() { return menuId; }
+    public void setMenuId(int menuId) { this.menuId = menuId; }
+    public String getItemName() { return itemName; }
+    public void setItemName(String itemName) { this.itemName = itemName; }
+    public double getPrice() { return price; }
+    public void setPrice(double price) { this.price = price; }
+    public int getQuantity() { return quantity; }
+    public void setQuantity(int quantity) { this.quantity = quantity; }
+    public String getImagePath() { return imagePath; }
+    public void setImagePath(String imagePath) { this.imagePath = imagePath; }
+    public int getRestaurantId() { return restaurantId; }
+    public void setRestaurantId(int restaurantId) { this.restaurantId = restaurantId; }
+}
+```
+
+---
+
+### `dao/CartDAO.java`
+
+```java
+package com.tap.dao;
+
+import com.tap.model.CartItem;
+import com.tap.utils.DBConnection;
+
+import java.sql.*;
+import java.util.ArrayList;
+import java.util.List;
+
+public class CartDAO {
+
+    public List<CartItem> getCartByUser(int userId) {
+        List<CartItem> list = new ArrayList<>();
+        String sql = "SELECT c.cart_id, c.userid, c.menu_id, c.quantity, m.item_name, m.price, m.img, m.restaurant_id " +
+                     "FROM food.M_S_CART c JOIN food.M_S_MENU m ON c.menu_id = m.menu_id " +
+                     "WHERE c.userid = ? AND c.is_deleted = 0";
+
+        try (Connection con = DBConnection.getConnection();
+             PreparedStatement ps = con.prepareStatement(sql)) {
+            ps.setInt(1, userId);
+            ResultSet rs = ps.executeQuery();
+            while (rs.next()) {
+                CartItem it = new CartItem();
+                it.setCartId(rs.getInt("cart_id"));
+                it.setUserId(rs.getInt("userid"));
+                it.setMenuId(rs.getInt("menu_id"));
+                it.setQuantity(rs.getInt("quantity"));
+                it.setItemName(rs.getString("item_name"));
+                it.setPrice(rs.getDouble("price"));
+                it.setImagePath(rs.getString("img"));
+                it.setRestaurantId(rs.getInt("restaurant_id"));
+                list.add(it);
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return list;
+    }
+
+    public int getCartRestaurantId(int userId) {
+        String sql = "SELECT TOP 1 m.restaurant_id FROM food.M_S_CART c JOIN food.M_S_MENU m ON c.menu_id = m.menu_id " +
+                     "WHERE c.userid = ? AND c.is_deleted = 0";
+        try (Connection con = DBConnection.getConnection();
+             PreparedStatement ps = con.prepareStatement(sql)) {
+            ps.setInt(1, userId);
+            ResultSet rs = ps.executeQuery();
+            if (rs.next()) {
+                return rs.getInt(1);
+            }
+        } catch (SQLException e) { e.printStackTrace(); }
+        return -1;
+    }
+
+    public boolean addOrIncrementCartItem(int userId, int menuId, int quantity) {
+        // if exists increment, else insert
+        String checkSql = "SELECT cart_id, quantity FROM food.M_S_CART WHERE userid = ? AND menu_id = ? AND is_deleted = 0";
+        String insertSql = "INSERT INTO food.M_S_CART(userid, menu_id, quantity) VALUES(?,?,?)";
+        String updateSql = "UPDATE food.M_S_CART SET quantity = quantity + ?, updated_at = GETDATE() WHERE cart_id = ?";
+        try (Connection con = DBConnection.getConnection();
+             PreparedStatement check = con.prepareStatement(checkSql)) {
+            check.setInt(1, userId); check.setInt(2, menuId);
+            ResultSet rs = check.executeQuery();
+            if (rs.next()) {
+                int cartId = rs.getInt("cart_id");
+                try (PreparedStatement upd = con.prepareStatement(updateSql)) {
+                    upd.setInt(1, quantity);
+                    upd.setInt(2, cartId);
+                    upd.executeUpdate();
+                }
+            } else {
+                try (PreparedStatement ins = con.prepareStatement(insertSql)) {
+                    ins.setInt(1, userId);
+                    ins.setInt(2, menuId);
+                    ins.setInt(3, quantity);
+                    ins.executeUpdate();
+                }
+            }
+            return true;
+        } catch (SQLException e) { e.printStackTrace(); }
+        return false;
+    }
+
+    public boolean clearCartForUser(int userId) {
+        String sql = "UPDATE food.M_S_CART SET is_deleted = 1, updated_at = GETDATE() WHERE userid = ?";
+        try (Connection con = DBConnection.getConnection();
+             PreparedStatement ps = con.prepareStatement(sql)) {
+            ps.setInt(1, userId);
+            ps.executeUpdate();
+            return true;
+        } catch (SQLException e) { e.printStackTrace(); }
+        return false;
+    }
+
+    public boolean updateQuantity(int cartId, int quantity) {
+        String sql = "UPDATE food.M_S_CART SET quantity = ?, updated_at = GETDATE() WHERE cart_id = ?";
+        try (Connection con = DBConnection.getConnection();
+             PreparedStatement ps = con.prepareStatement(sql)) {
+            ps.setInt(1, quantity);
+            ps.setInt(2, cartId);
+            ps.executeUpdate();
+            return true;
+        } catch (SQLException e) { e.printStackTrace(); }
+        return false;
+    }
+
+    public boolean softDeleteCartItem(int cartId) {
+        String sql = "UPDATE food.M_S_CART SET is_deleted = 1, updated_at = GETDATE() WHERE cart_id = ?";
+        try (Connection con = DBConnection.getConnection();
+             PreparedStatement ps = con.prepareStatement(sql)) {
+            ps.setInt(1, cartId);
+            ps.executeUpdate();
+            return true;
+        } catch (SQLException e) { e.printStackTrace(); }
+        return false;
+    }
+
+    // helper: fetch restaurant_id for a menu item
+    public int getRestaurantIdByMenu(int menuId) {
+        String sql = "SELECT restaurant_id FROM food.M_S_MENU WHERE menu_id = ? AND is_deleted = 0";
+        try (Connection con = DBConnection.getConnection();
+             PreparedStatement ps = con.prepareStatement(sql)) {
+            ps.setInt(1, menuId);
+            ResultSet rs = ps.executeQuery();
+            if (rs.next()) return rs.getInt("restaurant_id");
+        } catch (SQLException e) { e.printStackTrace(); }
+        return -1;
+    }
+
+    // helper: get menu item price (for updating totals)
+    public double getMenuPrice(int menuId) {
+        String sql = "SELECT price FROM food.M_S_MENU WHERE menu_id = ? AND is_deleted = 0";
+        try (Connection con = DBConnection.getConnection();
+             PreparedStatement ps = con.prepareStatement(sql)) {
+            ps.setInt(1, menuId);
+            ResultSet rs = ps.executeQuery();
+            if (rs.next()) return rs.getDouble("price");
+        } catch (SQLException e) { e.printStackTrace(); }
+        return 0.0;
+    }
+}
+```
+
+---
+
+### `service/CartService.java`
+
+```java
+package com.tap.service;
+
+import com.tap.dao.CartDAO;
+import com.tap.model.CartItem;
+
+import java.util.List;
+
+public class CartService {
+    private final CartDAO dao = new CartDAO();
+
+    public List<CartItem> getCartForUser(int userId) {
+        return dao.getCartByUser(userId);
+    }
+
+    public int getCartRestaurantId(int userId) {
+        return dao.getCartRestaurantId(userId);
+    }
+
+    public boolean addOrIncrement(int userId, int menuId, int qty) {
+        return dao.addOrIncrementCartItem(userId, menuId, qty);
+    }
+
+    public boolean clearCart(int userId) {
+        return dao.clearCartForUser(userId);
+    }
+
+    public boolean updateQuantity(int cartId, int qty) {
+        return dao.updateQuantity(cartId, qty);
+    }
+
+    public boolean deleteCartItem(int cartId) {
+        return dao.softDeleteCartItem(cartId);
+    }
+
+    public int getRestaurantIdByMenu(int menuId) {
+        return dao.getRestaurantIdByMenu(menuId);
+    }
+
+    public double getMenuPrice(int menuId) { return dao.getMenuPrice(menuId); }
+}
+```
+
+---
+
+### `servlet/CartApiServlet.java`
+
+Handles `GET /api/cart`, `POST /api/cart/add`, `POST /api/cart/update`, `POST /api/cart/delete`.
+
+```java
+package com.tap.servlet;
+
+import com.tap.model.CartItem;
+import com.tap.service.CartService;
+import com.google.gson.Gson;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+
+import javax.servlet.annotation.WebServlet;
+import javax.servlet.http.*;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+@WebServlet("/api/cart/*")
+public class CartApiServlet extends HttpServlet {
+    private final CartService service = new CartService();
+    private final Gson gson = new Gson();
+
+    // GET /api/cart
+    @Override
+    protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        HttpSession session = req.getSession(false);
+        resp.setContentType("application/json");
+        if (session == null || session.getAttribute("userid") == null) {
+            resp.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            resp.getWriter().write("{\"error\":\"Not authenticated\"}");
+            return;
+        }
+        int userId = (int) session.getAttribute("userid");
+        List<CartItem> list = service.getCartForUser(userId);
+        resp.getWriter().write(gson.toJson(list));
+    }
+
+    // POST for add/update/delete distinguished by path
+    @Override
+    protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        String path = req.getPathInfo(); // /add or /update or /delete
+        if (path == null) path = "/";
+
+        HttpSession session = req.getSession(false);
+        resp.setContentType("application/json");
+        if (session == null || session.getAttribute("userid") == null) {
+            resp.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            resp.getWriter().write("{\"success\":false, \"message\":\"Not authenticated\"}");
+            return;
+        }
+        int userId = (int) session.getAttribute("userid");
+
+        BufferedReader reader = req.getReader();
+        StringBuilder sb = new StringBuilder();
+        String line;
+        while ((line = reader.readLine()) != null) sb.append(line);
+        JsonObject body = sb.length() > 0 ? JsonParser.parseString(sb.toString()).getAsJsonObject() : new JsonObject();
+
+        Map<String,Object> out = new HashMap<>();
+
+        try {
+            switch (path) {
+                case "/add":
+                    int menuId = body.get("menu_id").getAsInt();
+                    int qty = body.has("quantity") ? body.get("quantity").getAsInt() : 1;
+                    boolean replace = body.has("replace") && body.get("replace").getAsBoolean();
+
+                    int cartRestId = service.getCartRestaurantId(userId);
+                    int menuRestId = service.getRestaurantIdByMenu(menuId);
+
+                    if (cartRestId != -1 && cartRestId != menuRestId && !replace) {
+                        // conflict
+                        out.put("success", false);
+                        out.put("conflict", true);
+                        out.put("message", "Your cart has items from another restaurant. Replace?");
+                        resp.getWriter().write(gson.toJson(out));
+                        return;
+                    }
+
+                    if (cartRestId != -1 && cartRestId != menuRestId && replace) {
+                        service.clearCart(userId);
+                    }
+
+                    boolean added = service.addOrIncrement(userId, menuId, qty);
+                    out.put("success", added);
+                    out.put("message", added ? "Added to cart" : "Failed to add");
+                    resp.getWriter().write(gson.toJson(out));
+                    break;
+
+                case "/update":
+                    int cartId = body.get("cart_id").getAsInt();
+                    int newQty = body.get("quantity").getAsInt();
+                    boolean upd = service.updateQuantity(cartId, newQty);
+                    // fetch price to compute itemTotal (best-effort)
+                    // Need to fetch menuId for cartId -> (for simplicity reload cart on frontend)
+                    out.put("success", upd);
+                    resp.getWriter().write(gson.toJson(out));
+                    break;
+
+                case "/delete":
+                    int cartIdDel = body.get("cart_id").getAsInt();
+                    boolean deleted = service.deleteCartItem(cartIdDel);
+                    out.put("success", deleted);
+                    resp.getWriter().write(gson.toJson(out));
+                    break;
+
+                default:
+                    resp.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+                    resp.getWriter().write("{\"success\":false, \"message\":\"Bad endpoint\"}");
+            }
+        } catch (Exception ex) {
+            ex.printStackTrace();
+            resp.setStatus(500);
+            resp.getWriter().write("{\"success\":false, \"message\":\"Server error\"}");
+        }
+    }
+}
+```
+
+---
+
+### `servlet/OrderServlet.java`
+
+Handles placing orders at `/api/order/place`. It expects `{ cart_ids: [..], payment_mode: "..." }` in JSON.
+
+```java
+package com.tap.servlet;
+
+import com.google.gson.Gson;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
+import com.tap.utils.DBConnection;
+
+import javax.servlet.annotation.WebServlet;
+import javax.servlet.http.*;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.sql.*;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+
+@WebServlet("/api/order/place")
+public class OrderServlet extends HttpServlet {
+    private final Gson gson = new Gson();
+
+    @Override
+    protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        HttpSession session = req.getSession(false);
+        resp.setContentType("application/json");
+        if (session == null || session.getAttribute("userid") == null) {
+            resp.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            resp.getWriter().write("{\"success\":false, \"message\":\"Not authenticated\"}");
+            return;
+        }
+        int userId = (int) session.getAttribute("userid");
+
+        BufferedReader reader = req.getReader();
+        StringBuilder sb = new StringBuilder();
+        String line;
+        while ((line = reader.readLine()) != null) sb.append(line);
+        JsonObject body = gson.fromJson(sb.toString(), JsonObject.class);
+
+        JsonArray arr = body.getAsJsonArray("cart_ids");
+        String paymentMode = body.has("payment_mode") ? body.get("payment_mode").getAsString() : "COD";
+
+        if (arr == null || arr.size() == 0) {
+            resp.getWriter().write("{\"success\":false, \"message\":\"No items selected\"}");
+            return;
+        }
+
+        List<Integer> cartIds = new ArrayList<>();
+        for (int i = 0; i < arr.size(); i++) cartIds.add(arr.get(i).getAsInt());
+
+        // Steps:
+        // 1) get cart items and ensure they belong to same restaurant and user
+        // 2) compute total
+        // 3) insert into M_S_ORDERS, then insert M_S_ORDER_ITEM for each
+        // 4) mark cart items deleted
+
+        String fetchSql = "SELECT c.cart_id, c.menu_id, c.quantity, m.price, m.restaurant_id FROM food.M_S_CART c JOIN food.M_S_MENU m ON c.menu_id = m.menu_id WHERE c.cart_id = ? AND c.userid = ? AND c.is_deleted = 0";
+
+        try (Connection con = DBConnection.getConnection()) {
+            con.setAutoCommit(false);
+
+            Integer restaurantId = null;
+            double totalAmount = 0.0;
+            List<CartRow> rows = new ArrayList<>();
+
+            try (PreparedStatement ps = con.prepareStatement(fetchSql)) {
+                for (Integer cartId : cartIds) {
+                    ps.setInt(1, cartId);
+                    ps.setInt(2, userId);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        if (rs.next()) {
+                            int menuId = rs.getInt("menu_id");
+                            int qty = rs.getInt("quantity");
+                            double price = rs.getDouble("price");
+                            int restId = rs.getInt("restaurant_id");
+                            if (restaurantId == null) restaurantId = restId;
+                            else if (restaurantId != restId) {
+                                con.rollback();
+                                resp.getWriter().write("{\"success\":false, \"message\":\"Selected items belong to multiple restaurants\"}");
+                                return;
+                            }
+                            totalAmount += price * qty;
+                            rows.add(new CartRow(cartId, menuId, qty, price));
+                        } else {
+                            con.rollback();
+                            resp.getWriter().write("{\"success\":false, \"message\":\"Invalid cart item\"}");
+                            return;
+                        }
+                    }
+                }
+            }
+
+            if (restaurantId == null) {
+                con.rollback();
+                resp.getWriter().write("{\"success\":false, \"message\":\"No valid items\"}");
+                return;
+            }
+
+            // Insert order
+            String insertOrder = "INSERT INTO food.M_S_ORDERS (restaurant_id, userid, order_date, total_amount, status, payment_mode) VALUES (?, ?, ?, ?, ?, ?)";
+            try (PreparedStatement orderPs = con.prepareStatement(insertOrder, Statement.RETURN_GENERATED_KEYS)) {
+                orderPs.setInt(1, restaurantId);
+                orderPs.setInt(2, userId);
+                orderPs.setTimestamp(3, Timestamp.valueOf(LocalDateTime.now()));
+                orderPs.setDouble(4, totalAmount);
+                orderPs.setString(5, "PLACED");
+                orderPs.setString(6, paymentMode);
+                orderPs.executeUpdate();
+                ResultSet gen = orderPs.getGeneratedKeys();
+                if (!gen.next()) {
+                    con.rollback();
+                    resp.getWriter().write("{\"success\":false, \"message\":\"Failed to create order\"}");
+                    return;
+                }
+                int orderId = gen.getInt(1);
+
+                // Insert order items
+                String insertItem = "INSERT INTO food.M_S_ORDER_ITEM (order_id, menu_id, quantity, total_amount) VALUES (?, ?, ?, ?)";
+                try (PreparedStatement itemPs = con.prepareStatement(insertItem)) {
+                    for (CartRow rRow : rows) {
+                        itemPs.setInt(1, orderId);
+                        itemPs.setInt(2, rRow.menuId);
+                        itemPs.setInt(3, rRow.qty);
+                        itemPs.setDouble(4, rRow.price * rRow.qty);
+                        itemPs.addBatch();
+                    }
+                    itemPs.executeBatch();
+                }
+
+                // Mark cart items deleted
+                String markCart = "UPDATE food.M_S_CART SET is_deleted = 1, updated_at = GETDATE() WHERE cart_id = ?";
+                try (PreparedStatement markPs = con.prepareStatement(markCart)) {
+                    for (Integer cId : cartIds) {
+                        markPs.setInt(1, cId);
+                        markPs.addBatch();
+                    }
+                    markPs.executeBatch();
+                }
+
+                con.commit();
+                JsonObject out = new JsonObject();
+                out.addProperty("success", true);
+                out.addProperty("order_id", orderId);
+                resp.getWriter().write(gson.toJson(out));
+                return;
+            }
+
+        } catch (Exception ex) {
+            ex.printStackTrace();
+            resp.getWriter().write("{\"success\":false, \"message\":\"Server error\"}");
+        }
+    }
+
+    // simple helper row
+    private static class CartRow {
+        int cartId, menuId, qty;
+        double price;
+        CartRow(int cartId, int menuId, int qty, double price) { this.cartId = cartId; this.menuId = menuId; this.qty = qty; this.price = price; }
+    }
+}
+```
+
+---
+
+## Menu page: Add-to-cart behavior (client side)
+
+When adding from `menu.js` you must call add endpoint and handle conflict response:
+
+Example snippet to add (in your menu.js):
+
+```javascript
+function addToCart(menuId) {
+  $.ajax({
+    url: `${CONTEXT}/api/cart/add`,
+    method: "POST",
+    contentType: "application/json",
+    data: JSON.stringify({ menu_id: menuId, quantity: 1 }),
+    success: function(res) {
+      if (res.conflict) {
+        if (confirm(res.message || "Replace cart with items from this restaurant?")) {
+          // retry with replace=true
+          $.ajax({
+            url: `${CONTEXT}/api/cart/add`,
+            method: "POST",
+            contentType: "application/json",
+            data: JSON.stringify({ menu_id: menuId, quantity: 1, replace: true }),
+            success: function(r2) {
+              alert(r2.success ? "Added to cart (replaced)." : "Failed to add.");
+            }
+          });
+        }
+      } else {
+        alert(res.success ? "Added to cart" : res.message || "Failed to add");
+      }
+    }
+  });
+}
+```
+
+---
+
+## web.xml (if needed)
+
+If you use `@WebServlet` annotations the servlet container auto-maps. If you prefer `web.xml`, map `/api/cart/*` and `/api/order/place`.
+
+---
+
+## Testing checklist (do exactly in this order)
+
+1. Update `DBConnection` with your SQL Server credentials.
+2. Ensure DB schema tables exist (you provided earlier).
+3. Add compiled classes and dependencies (Gson + mssql-jdbc) to your WAR.
+4. Make sure your login flow sets `session.setAttribute("userid", <int>)`.
+5. Deploy and open `cart.html` (it will call `/api/cart` and redirect to login if not authenticated).
+6. From menu page, call `addToCart(menuId)` to add items — if conflict occurs you will get the replace prompt.
+7. Use cart page to modify quantities, remove items, select items and Place Order. After placing order, cart items are removed and order inserted into `M_S_ORDERS` and `M_S_ORDER_ITEM`.
+
+---
+
+## Security & production notes
+
+* Use HTTPS and protect endpoints with proper authentication/authorization.
+* Sanitize/validate user input server-side (we validated basic things).
+* For production use a connection pool (Tomcat DataSource / HikariCP) instead of `DriverManager`.
+* Add CSRF protection for forms or require a token for sensitive POSTs.
+* Consider rate-limiting or optimistic locking when updating cart quantities concurrently.
+
+---
+
+If you want, next I can:
+
+* Provide exact **menu servlet / menu page** integration using the same `CONTEXT` approach (so add-to-cart works out-of-the-box).
+* Add a small modal for payment and shipping address selection before placing an order.
+* Provide ready-to-deploy `pom.xml` with dependencies and a sample `web.xml`.
+
+Which one should I produce next?
